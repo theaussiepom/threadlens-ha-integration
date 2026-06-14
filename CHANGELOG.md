@@ -2,7 +2,19 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
-## [0.1.15] - Unreleased
+## [0.1.16] - 2026-06-15
+
+### Added
+- ZigbeeLens-style lightweight companion panel with redacted `threadlens/panel_summary` websocket
+- Config flow options for Core URL, verify SSL, and sidebar panel toggle
+- Auto-embed full Core dashboard when HA and Core use the same protocol (HTTP+HTTP or HTTPS+HTTPS)
+
+### Changed
+- Panel registration now passes `core_url` in config and sets `embed_iframe=False` (fixes sidebar disappearing with HTTPS FQDN)
+- Replaced heavy native dashboard clone with calm summary/launcher surface matching ZigbeeLens
+- Options flow simplified: removed `embed_dashboard` toggle in favour of protocol-based auto-embed
+
+## [0.1.15] - 2026-06-15
 
 ### Added
 - README screenshots (config flow, device page, companion panel, Core dashboard, node detail)

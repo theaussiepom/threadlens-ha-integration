@@ -2,16 +2,19 @@
   "config": {
     "step": {
       "user": {
-        "title": "ThreadLens",
-        "description": "Connect to a running ThreadLens Core API instance.",
+        "title": "Connect to ThreadLens Core",
+        "description": "Enter the ThreadLens Core API URL. Use HTTP for LAN installs (for example `http://192.168.100.4:8128`). Use HTTPS only when you have a trusted reverse proxy or TLS endpoint (for example `https://threadlens.example.com`).",
         "data": {
-          "url": "ThreadLens API URL"
+          "url": "ThreadLens Core URL",
+          "verify_ssl": "Verify SSL certificate",
+          "panel_enabled": "Show ThreadLens in the sidebar"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the ThreadLens API",
-      "invalid_response": "The ThreadLens API returned an invalid response",
+      "cannot_connect": "Failed to connect to ThreadLens Core",
+      "invalid_response": "ThreadLens Core returned an invalid response",
+      "invalid_url": "Enter a valid URL with scheme and host (for example http://192.168.100.4:8128)",
       "unknown": "An unknown error occurred"
     },
     "abort": {
@@ -22,9 +25,11 @@
     "step": {
       "init": {
         "title": "ThreadLens options",
-        "description": "Optional sidebar behaviour for the ThreadLens companion panel.",
+        "description": "Update the Core URL, SSL verification, and sidebar panel.",
         "data": {
-          "embed_dashboard": "Embed Core dashboard in sidebar when browser security allows"
+          "url": "ThreadLens Core URL",
+          "verify_ssl": "Verify SSL certificate",
+          "panel_enabled": "Show ThreadLens in the sidebar"
         }
       }
     }

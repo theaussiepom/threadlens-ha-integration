@@ -51,13 +51,13 @@ jobs:
 
           manifest = json.loads((integration / "manifest.json").read_text())
           assert manifest["domain"] == "threadlens"
-          assert manifest["version"] == "0.1.15"
+          assert manifest["version"] == "0.1.16"
           for dep in ("http", "websocket_api", "frontend", "panel_custom"):
               assert dep in manifest["dependencies"], f"Missing manifest dependency: {dep}"
 
           assert panel_js.is_file(), "Panel JS must be packaged"
           panel_text = panel_js.read_text(encoding="utf-8")
-          assert "threadlens/dashboard" in panel_text
+          assert "threadlens/panel_summary" in panel_text
           assert "https://" not in panel_text
           assert "http://" not in panel_text.replace("rgba(0,0,0", "")
           assert "import " not in panel_text and "require(" not in panel_text
@@ -75,7 +75,8 @@ jobs:
               "diagnostics.py",
               "dashboard.py",
               "websocket.py",
-              "frontend.py",
+              "panel.py",
+              "panel_data.py",
               "report_view.py",
               "repairs.py",
               "panel_embed.py",
