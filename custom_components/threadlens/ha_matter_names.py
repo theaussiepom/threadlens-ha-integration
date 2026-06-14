@@ -65,13 +65,31 @@ def parse_node_id_from_matter_unique_id(unique_id: Any) -> int | None:
     return coerce_matter_node_id(parts[1])
 
 
+def _iter_identifier_pairs(
+    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | list[list[str]] | None,
+):
+    """Yield (domain, identifier) pairs from HA device identifiers.
+
+    Registry entries are usually 2-tuples/lists, but some integrations
+    (for example HomeKit bridges) store 3-element identifier lists. Ignore
+    malformed entries instead of aborting the whole lookup.
+    """
+    if not identifiers:
+        return
+    for entry in identifiers:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        domain = entry[0]
+        ident = entry[1]
+        if isinstance(domain, str) and isinstance(ident, str):
+            yield domain, ident
+
+
 def parse_matter_node_id(
-    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | None,
+    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | list[list[str]] | None,
 ) -> int | None:
     """Extract a Matter node ID from HA device identifiers."""
-    if not identifiers:
-        return None
-    for domain, ident in identifiers:
+    for domain, ident in _iter_identifier_pairs(identifiers):
         if domain != MATTER_DOMAIN or not ident.startswith(_DEVICE_ID_PREFIX):
             continue
         # deviceid_{fabric_hex}-{node_id_hex}-{postfix}
@@ -115,12 +133,10 @@ def _threadlens_serial_candidates(node: dict[str, Any]) -> list[str]:
 
 
 def parse_matter_serial(
-    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | None,
+    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | list[list[str]] | None,
 ) -> str | None:
     """Extract a Matter serial identifier from HA device identifiers."""
-    if not identifiers:
-        return None
-    for domain, ident in identifiers:
+    for domain, ident in _iter_identifier_pairs(identifiers):
         if domain == MATTER_DOMAIN and ident.startswith(_SERIAL_PREFIX):
             return _normalise_serial(ident[len(_SERIAL_PREFIX) :])
     return None

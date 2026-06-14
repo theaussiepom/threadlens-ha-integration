@@ -45,6 +45,40 @@ def _entity(**kwargs):
     return SimpleNamespace(**defaults)
 
 
+def test_parse_matter_node_id_ignores_three_element_identifiers():
+    node_id = ha_matter_names.parse_matter_node_id(
+        [
+            ["homekit", "01KAMS87J7F0DVC3Q7E961B2R5", "homekit.bridge"],
+            ["matter", "deviceid_11C2DEB7A4D8CDBA-0000000000000011-MatterNodeDevice"],
+        ]
+    )
+    assert node_id == 17
+
+
+def test_build_lookup_survives_homekit_bridge_identifiers():
+    lookup = ha_matter_names.build_matter_ha_lookup_from_registry(
+        [
+            _device(
+                name="HomeKit Bridge",
+                identifiers=[
+                    ["homekit", "01KAMS87J7F0DVC3Q7E961B2R5", "homekit.bridge"],
+                ],
+            ),
+            _device(
+                identifiers={
+                    ("matter", "deviceid_11C2DEB7A4D8CDBA-0000000000000011-MatterNodeDevice"),
+                    ("matter", "serial_SCM-MT-2507-0099"),
+                },
+                name="Study Blind",
+            ),
+        ],
+        [_entity(entity_id="cover.blind_study", name="Study Blind")],
+    )
+    match = lookup["by_node_id"][17]
+    assert match["ha_device_name"] == "Study Blind"
+    assert "cover.blind_study" in match["ha_entity_ids"]
+
+
 def test_parse_matter_node_id_from_device_identifier():
     node_id = ha_matter_names.parse_matter_node_id(
         {("matter", "deviceid_ABCD1234-0000000000000011-MatterNodeDevice")}
