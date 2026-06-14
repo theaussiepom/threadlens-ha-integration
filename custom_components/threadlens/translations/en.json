@@ -14,7 +14,7 @@
     "error": {
       "cannot_connect": "Failed to connect to ThreadLens Core",
       "invalid_response": "ThreadLens Core returned an invalid response",
-      "invalid_url": "Enter a valid URL with scheme and host (for example http://192.168.100.4:8128)",
+      "invalid_url": "Enter a valid URL with scheme and host",
       "unknown": "An unknown error occurred"
     },
     "abort": {
