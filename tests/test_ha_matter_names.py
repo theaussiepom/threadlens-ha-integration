@@ -52,6 +52,11 @@ def test_parse_matter_node_id_from_device_identifier():
     assert node_id == 17
 
 
+def test_parse_matter_node_id_handles_missing_identifiers():
+    assert ha_matter_names.parse_matter_node_id(None) is None
+    assert ha_matter_names.parse_matter_node_id([]) is None
+
+
 def test_build_lookup_maps_device_and_cover_entity():
     lookup = ha_matter_names.build_matter_ha_lookup_from_registry(
         [_device()],

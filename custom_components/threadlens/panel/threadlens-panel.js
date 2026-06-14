@@ -91,6 +91,10 @@ class ThreadLensPanel extends HTMLElement {
       this._initialized = true;
       this._render();
       this._fetch();
+      return;
+    }
+    if (!this._data) {
+      this._fetch();
     }
   }
 
@@ -101,6 +105,7 @@ class ThreadLensPanel extends HTMLElement {
   connectedCallback() {
     if (this._timer) clearInterval(this._timer);
     this._timer = setInterval(() => this._fetch(), REFRESH_INTERVAL_MS);
+    if (this._hass) this._fetch();
   }
 
   disconnectedCallback() {
@@ -114,9 +119,16 @@ class ThreadLensPanel extends HTMLElement {
     this._update();
     try {
       const result = await this._hass.callWS({ type: "threadlens/dashboard" });
-      this._data = result;
-      this._error = result && result.error ? result.error : null;
+      if (result && result.threadlens) {
+        this._data = result;
+        this._error = result.error || null;
+      } else {
+        this._data = null;
+        this._error =
+          (result && result.error) || "Invalid ThreadLens dashboard response from Home Assistant";
+      }
     } catch (err) {
+      this._data = null;
       this._error = (err && (err.message || err.code)) || "Failed to load ThreadLens data";
     }
     this._loading = false;
@@ -213,16 +225,27 @@ class ThreadLensPanel extends HTMLElement {
       </div>`;
 
     if (!d) {
+      if (this._error) {
+        return (
+          header +
+          `<div class="tl-card tl-error">
+            <h2>ThreadLens panel unavailable</h2>
+            <p>${esc(this._error)}</p>
+            <p class="tl-muted">Try Reload on the ThreadLens integration, then refresh this panel. Check Home Assistant logs for <code>threadlens</code> errors.</p>
+          </div>`
+        );
+      }
       return header + `<div class="tl-card"><p class="tl-muted">Loading ThreadLens data…</p></div>`;
     }
 
-    if (this._error && !connected) {
+    if (!connected) {
+      const message = this._error || "Cannot reach the ThreadLens API";
       return (
         header +
         `<div class="tl-card tl-error">
           <h2>ThreadLens API unavailable</h2>
-          <p>${esc(this._error)}</p>
-          <p class="tl-muted">Confirm ThreadLens Core is running and reachable from Home Assistant, then refresh.</p>
+          <p>${esc(message)}</p>
+          <p class="tl-muted">The integration backend may be connected while the dashboard payload is unavailable. Reload ThreadLens under Settings → Devices & services, then refresh.</p>
         </div>`
       );
     }

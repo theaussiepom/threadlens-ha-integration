@@ -23,8 +23,12 @@ _SERIAL_PREFIX = "serial_"
 _PREFERRED_ENTITY_DOMAINS = ("cover", "switch", "light", "binary_sensor")
 
 
-def parse_matter_node_id(identifiers: set[tuple[str, str]] | list[tuple[str, str]]) -> int | None:
+def parse_matter_node_id(
+    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | None,
+) -> int | None:
     """Extract a Matter node ID from HA device identifiers."""
+    if not identifiers:
+        return None
     for domain, ident in identifiers:
         if domain != MATTER_DOMAIN or not ident.startswith(_DEVICE_ID_PREFIX):
             continue
@@ -40,8 +44,12 @@ def parse_matter_node_id(identifiers: set[tuple[str, str]] | list[tuple[str, str
     return None
 
 
-def parse_matter_serial(identifiers: set[tuple[str, str]] | list[tuple[str, str]]) -> str | None:
+def parse_matter_serial(
+    identifiers: set[tuple[str, str]] | list[tuple[str, str]] | None,
+) -> str | None:
     """Extract a Matter serial identifier from HA device identifiers."""
+    if not identifiers:
+        return None
     for domain, ident in identifiers:
         if domain == MATTER_DOMAIN and ident.startswith(_SERIAL_PREFIX):
             return ident[len(_SERIAL_PREFIX) :]
@@ -65,8 +73,9 @@ def build_matter_ha_lookup_from_registry(
     by_serial: dict[str, dict[str, Any]] = {}
 
     for device in devices:
-        node_id = parse_matter_node_id(device.identifiers)
-        serial = parse_matter_serial(device.identifiers)
+        identifiers = getattr(device, "identifiers", None) or ()
+        node_id = parse_matter_node_id(identifiers)
+        serial = parse_matter_serial(identifiers)
         device_name = _device_display_name(device)
         if node_id is None and not serial:
             continue

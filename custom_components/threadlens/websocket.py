@@ -7,6 +7,7 @@ connection. This avoids CORS, mixed-content, and local-network auth issues.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -15,6 +16,9 @@ from homeassistant.core import HomeAssistant, callback
 
 from .const import DATA_WEBSOCKET_REGISTERED, DOMAIN, WS_TYPE_DASHBOARD
 from .coordinator import ThreadLensCoordinator
+from .dashboard import build_disconnected_payload
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @callback
@@ -50,4 +54,11 @@ async def websocket_dashboard(
             "ThreadLens is not configured",
         )
         return
-    connection.send_result(msg["id"], coordinator.dashboard_payload())
+    try:
+        payload = coordinator.dashboard_payload()
+    except Exception:
+        _LOGGER.exception("ThreadLens dashboard payload failed")
+        payload = build_disconnected_payload(
+            error="ThreadLens dashboard failed to build. Check Home Assistant logs.",
+        )
+    connection.send_result(msg["id"], payload)
