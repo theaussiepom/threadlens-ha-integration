@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to ThreadLens Core",
-        "description": "Enter the ThreadLens Core API URL. Use HTTP for LAN installs (for example `http://192.168.100.4:8128`). Use HTTPS only when you have a trusted reverse proxy or TLS endpoint (for example `https://threadlens.example.com`).",
+        "description": "Enter the ThreadLens Core API URL. HTTP is fine for LAN installs and the native companion panel. Use HTTPS when you have a trusted reverse proxy or TLS endpoint and want the full dashboard embedded in Home Assistant.",
         "data": {
           "url": "ThreadLens Core URL",
           "verify_ssl": "Verify SSL certificate",
