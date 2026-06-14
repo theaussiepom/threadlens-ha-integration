@@ -249,11 +249,14 @@ class ThreadLensPanel extends HTMLElement {
       const message = this._error || "Cannot reach the ThreadLens API";
       return (
         header +
+        this._companionAccessSection(d.panel || {}) +
         `<div class="tl-card tl-error">
           <h2>ThreadLens API unavailable</h2>
           <p>${esc(message)}</p>
           <p class="tl-muted">The integration backend may be connected while the dashboard payload is unavailable. Reload ThreadLens under Settings → Devices & services, then refresh.</p>
-        </div>`
+        </div>` +
+        this._summaryCards(d) +
+        this._diagnosticsSection(d)
       );
     }
 
@@ -270,6 +273,7 @@ class ThreadLensPanel extends HTMLElement {
 
     return (
       header +
+      this._companionAccessSection(d.panel || {}) +
       this._incidentCard(d) +
       this._overallCard(tl) +
       this._summaryCards(d) +
@@ -280,6 +284,42 @@ class ThreadLensPanel extends HTMLElement {
       this._reportSection(d.report || {}) +
       this._diagnosticsSection(d)
     );
+  }
+
+  _companionAccessSection(panel) {
+    const coreUrl = panel.core_url || "";
+    const openButton = coreUrl
+      ? `<a class="tl-btn tl-btn-primary" href="${esc(coreUrl)}" target="_blank" rel="noopener noreferrer">Open full ThreadLens dashboard</a>`
+      : `<p class="tl-muted">Configure the ThreadLens Core URL in integration settings to open the full dashboard.</p>`;
+
+    let note = "";
+    if (panel.embed_dashboard && panel.show_embedded_dashboard) {
+      note = `<p class="tl-muted">Embedded dashboard is enabled below. The native companion panel remains available for status and diagnostics.</p>`;
+    } else if (panel.embed_dashboard && panel.iframe_blocked_reason) {
+      note = `<div class="tl-info-banner"><p class="tl-info-text">${esc(panel.iframe_blocked_reason)}</p></div>`;
+    } else if (!panel.embed_dashboard) {
+      note = `<p class="tl-muted">Optional embedded dashboard is off. Enable it in ThreadLens integration options if your browser and security setup allow iframe embedding.</p>`;
+    }
+
+    const iframe =
+      panel.show_embedded_dashboard && coreUrl
+        ? `<div class="tl-iframe-wrap">
+            <iframe
+              class="tl-dashboard-iframe"
+              src="${esc(coreUrl)}"
+              title="ThreadLens Core dashboard"
+              loading="lazy"
+            ></iframe>
+          </div>`
+        : "";
+
+    return `
+      <div class="tl-card tl-companion-access">
+        <h2>Full dashboard access</h2>
+        <div class="tl-btn-row">${openButton}</div>
+        ${note}
+        ${iframe}
+      </div>`;
   }
 
   _incidentCard(d) {
@@ -850,6 +890,26 @@ class ThreadLensPanel extends HTMLElement {
         border-radius: 8px;
         background: var(--secondary-background-color, #f5f5f5);
         border: 1px solid var(--divider-color, #e0e0e0);
+      }
+      .tl-btn-primary {
+        font-weight: 600;
+      }
+      .tl-companion-access h2 { margin-top: 0; }
+      .tl-iframe-wrap {
+        margin-top: 12px;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .tl-dashboard-iframe {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: min(70vh, 900px);
+        min-height: 320px;
+        border: 1px solid var(--divider-color, #bdbdbd);
+        border-radius: 8px;
+        background: var(--card-background-color, #fff);
       }
       .tl-btn-secondary {
         background: var(--secondary-background-color, #e0e0e0);

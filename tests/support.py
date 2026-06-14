@@ -52,14 +52,18 @@ def install_homeassistant_stubs() -> None:
     helpers.update_coordinator = update_coordinator
     helpers.device_registry = device_registry
     helpers.entity_registry = entity_registry
+    config_entries = ModuleType("homeassistant.config_entries")
+    config_entries.ConfigEntry = type("ConfigEntry", (), {})
     ha.core = core
     ha.helpers = helpers
+    ha.config_entries = config_entries
     sys.modules["homeassistant"] = ha
     sys.modules["homeassistant.core"] = core
     sys.modules["homeassistant.helpers"] = helpers
     sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
     sys.modules["homeassistant.helpers.device_registry"] = device_registry
     sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
+    sys.modules["homeassistant.config_entries"] = config_entries
 
 
 def _ensure_threadlens_package() -> ModuleType:
@@ -94,6 +98,26 @@ def load_api_module():
 def load_dashboard_module():
     """Load the HA-free dashboard aggregation module."""
     return load_submodule("dashboard")
+
+
+def make_config_entry(*, options=None, data=None):
+    """Create a lightweight config entry stand-in for coordinator tests."""
+    from unittest.mock import MagicMock
+
+    entry = MagicMock()
+    entry.options = options or {}
+    entry.data = data or {"url": "http://tl:8128"}
+    return entry
+
+
+def make_hass(*, external_url=None, internal_url=None):
+    """Create a lightweight Home Assistant stand-in."""
+    from unittest.mock import MagicMock
+
+    hass = MagicMock()
+    hass.config.external_url = external_url
+    hass.config.internal_url = internal_url
+    return hass
 
 
 def load_coordinator_module():

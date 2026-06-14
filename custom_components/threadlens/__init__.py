@@ -25,7 +25,7 @@ def _has_other_entries(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ThreadLens from a config entry."""
-    coordinator = await build_coordinator(hass, entry.data)
+    coordinator = await build_coordinator(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

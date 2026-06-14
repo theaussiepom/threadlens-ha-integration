@@ -854,6 +854,7 @@ def build_dashboard_payload(
     event_window: str = DEFAULT_EVENT_WINDOW,
     ha_matter_names: dict[int, dict[str, Any]] | None = None,
     report_urls: dict[str, str] | None = None,
+    panel_access: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
     """Compose the unified dashboard payload from raw ThreadLens responses."""
@@ -985,6 +986,7 @@ def build_dashboard_payload(
             "report_proxy_url": report_urls.get("proxy"),
             "last_generated_at": last_generated_at,
         },
+        "panel": panel_access or {},
         "error": error,
     }
 

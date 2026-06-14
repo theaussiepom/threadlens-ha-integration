@@ -90,12 +90,34 @@ Validation calls:
 - `GET /api/v1/version`
 - `GET /api/v1/health`
 
+### Optional embedded dashboard
+
+The default sidebar experience is a **native companion/status panel**. It remains useful even when
+browser security blocks iframe embedding.
+
+- **Open full ThreadLens dashboard** opens the canonical Core UI in a new tab.
+- **Embed Core dashboard in sidebar** is an opt-in integration option (`embed_dashboard`, default
+  `false`). Enable it under **Settings → Devices & services → ThreadLens → Configure** only if your
+  browser setup allows iframe embedding.
+
+If Home Assistant is served over **HTTPS** and ThreadLens Core is **HTTP**, browsers block mixed
+content. The panel keeps the native companion view and shows a calm note instead of a broken iframe.
+Reverse proxy or HTTPS Core is optional for advanced users, not required for basic HACS value.
+
+For Home Assistant OS users, the **HAOS add-on Ingress** path is the embedded full-dashboard
+experience. Docker users can open Core directly.
+
 ## Where to find the dashboard
 
 After adding the integration, look for **ThreadLens** in the Home Assistant left sidebar (icon
 `mdi:access-point-network`). The panel registers on setup — a restart is only required after the
-initial HACS install. The panel fetches data from Home Assistant, which polls ThreadLens Core every
-60 seconds; use the **Refresh** button for an immediate update.
+initial HACS install.
+
+The default view is the **native companion/status panel** with a prominent **Open full ThreadLens
+dashboard** button. Optional iframe embedding is off unless you enable it in integration options.
+
+The panel fetches data from Home Assistant, which polls ThreadLens Core every 60 seconds; use the
+**Refresh** button for an immediate update.
 
 ### After a HACS update
 

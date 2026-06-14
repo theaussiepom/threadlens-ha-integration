@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from support import load_api_module, load_coordinator_module
+from support import load_api_module, load_coordinator_module, make_config_entry, make_hass
 
 api = load_api_module()
 coordinator_mod = load_coordinator_module()
@@ -18,7 +18,7 @@ UpdateFailed = coordinator_mod.UpdateFailed
 async def test_coordinator_marks_unavailable_on_connection_failure() -> None:
     api_mock = MagicMock()
     api_mock.get_version = AsyncMock(side_effect=ThreadLensCannotConnect("down"))
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(make_hass(), api_mock, make_config_entry())
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
@@ -39,7 +39,7 @@ async def test_coordinator_returns_connected_data() -> None:
         "get_events",
     ):
         setattr(api_mock, getter, AsyncMock(return_value=[]))
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(make_hass(), api_mock, make_config_entry())
     data = await coordinator._async_update_data()
     assert data.connected is True
     assert data.version["version"] == "0.1.0"
@@ -58,7 +58,7 @@ async def test_coordinator_collects_dashboard_detail_endpoints() -> None:
     api_mock.get_mdns_services = AsyncMock(return_value=[{"service_type": "_x._tcp"}])
     api_mock.get_trel_services = AsyncMock(return_value=[])
     api_mock.get_events = AsyncMock(return_value=[])
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(make_hass(), api_mock, make_config_entry())
     data = await coordinator._async_update_data()
     assert data.otbrs == [{"id": "o1", "name": "OTBR"}]
     assert data.mdns_services[0]["service_type"] == "_x._tcp"
@@ -78,7 +78,7 @@ async def test_coordinator_detail_endpoint_failure_is_non_fatal() -> None:
     api_mock.get_mdns_services = AsyncMock(return_value=[])
     api_mock.get_trel_services = AsyncMock(return_value=[])
     api_mock.get_events = AsyncMock(return_value=[])
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(make_hass(), api_mock, make_config_entry())
     data = await coordinator._async_update_data()
     assert data.connected is True
     assert data.otbrs == []
@@ -87,17 +87,44 @@ async def test_coordinator_detail_endpoint_failure_is_non_fatal() -> None:
 def test_coordinator_dashboard_payload_disconnected() -> None:
     api_mock = MagicMock()
     api_mock.base_url = "http://tl:8128"
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(
+        make_hass(external_url="https://ha.example.com"),
+        api_mock,
+        make_config_entry(),
+    )
     coordinator.data = None
     payload = coordinator.dashboard_payload()
     assert payload["threadlens"]["api_connected"] is False
     assert payload["report"]["report_url"].endswith("/api/v1/report.yaml")
+    assert payload["panel"]["core_url"] == "http://tl:8128"
+    assert payload["panel"]["embed_dashboard"] is False
+    assert payload["panel"]["show_embedded_dashboard"] is False
+
+
+def test_coordinator_dashboard_payload_includes_panel_access_when_embed_enabled() -> None:
+    api_mock = MagicMock()
+    api_mock.base_url = "http://tl:8128"
+    coordinator = ThreadLensCoordinator(
+        make_hass(external_url="http://ha.example.com"),
+        api_mock,
+        make_config_entry(options={"embed_dashboard": True}),
+    )
+    coordinator.data = coordinator_mod.ThreadLensCoordinatorData(
+        connected=True,
+        version={"tool": "ThreadLens", "version": "0.2.0"},
+        health={"overall": {"state": "healthy", "reasons": []}},
+        status={"collectors": {}},
+        last_update="2026-06-14T12:00:00+00:00",
+    )
+    payload = coordinator.dashboard_payload()
+    assert payload["panel"]["embed_dashboard"] is True
+    assert payload["panel"]["show_embedded_dashboard"] is True
 
 
 def test_coordinator_dashboard_payload_survives_ha_lookup_failure(monkeypatch) -> None:
     api_mock = MagicMock()
     api_mock.base_url = "http://tl:8128"
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(make_hass(), api_mock, make_config_entry())
     coordinator.data = coordinator_mod.ThreadLensCoordinatorData(
         connected=True,
         version={"tool": "ThreadLens", "version": "0.1.2"},
@@ -119,7 +146,7 @@ def test_coordinator_dashboard_payload_survives_ha_lookup_failure(monkeypatch) -
 def test_coordinator_dashboard_payload_survives_dashboard_build_failure(monkeypatch) -> None:
     api_mock = MagicMock()
     api_mock.base_url = "http://tl:8128"
-    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator = ThreadLensCoordinator(make_hass(), api_mock, make_config_entry())
     coordinator.data = coordinator_mod.ThreadLensCoordinatorData(
         connected=True,
         version={"tool": "ThreadLens", "version": "0.1.2"},

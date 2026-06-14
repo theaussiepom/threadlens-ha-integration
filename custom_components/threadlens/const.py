@@ -2,6 +2,7 @@
 
 DOMAIN = "threadlens"
 CONF_URL = "url"
+CONF_EMBED_DASHBOARD = "embed_dashboard"
 
 DEFAULT_SCAN_INTERVAL = 60
 

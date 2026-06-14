@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -30,6 +31,7 @@ from .ha_matter_names import (
     coerce_matter_node_id,
     resolve_ha_names_for_node,
 )
+from .panel_embed import build_panel_access, embed_dashboard_enabled
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +57,12 @@ class ThreadLensCoordinatorData:
 class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
     """Poll ThreadLens Core health, status, and dashboard detail."""
 
-    def __init__(self, hass: HomeAssistant, api: ThreadLensApi) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api: ThreadLensApi,
+        entry: ConfigEntry,
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -63,6 +70,7 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.api = api
+        self.entry = entry
 
     async def _async_update_data(self) -> ThreadLensCoordinatorData:
         try:
@@ -117,14 +125,21 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
         """Build the aggregated dashboard payload for the frontend panel."""
         report_urls = build_report_urls(self.api.base_url)
         report_urls["proxy"] = REPORT_PROXY_URL
+        panel_access = build_panel_access(
+            self.hass,
+            core_url=self.api.base_url,
+            embed_dashboard=embed_dashboard_enabled(self.entry.options),
+        )
         data = self.data
         try:
             if data is None or not data.connected:
-                return build_disconnected_payload(
+                payload = build_disconnected_payload(
                     version=data.version if data else None,
                     last_update=data.last_update if data else None,
                     report_urls=report_urls,
                 )
+                payload["panel"] = panel_access
+                return payload
             ha_matter_names: dict[int, dict[str, Any]] = {}
             try:
                 ha_lookup = build_matter_node_ha_lookup(self.hass)
@@ -155,25 +170,26 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
                 event_window=EVENT_WINDOW,
                 ha_matter_names=ha_matter_names,
                 report_urls=report_urls,
+                panel_access=panel_access,
             )
         except Exception:
             _LOGGER.exception("ThreadLens dashboard payload failed")
-            return build_disconnected_payload(
+            payload = build_disconnected_payload(
                 version=data.version if data else None,
                 last_update=data.last_update if data else None,
                 report_urls=report_urls,
                 error="ThreadLens dashboard failed to build. Check Home Assistant logs.",
             )
+            payload["panel"] = panel_access
+            return payload
 
 
-async def build_coordinator(
-    hass: HomeAssistant, entry_data: dict[str, Any]
-) -> ThreadLensCoordinator:
+async def build_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> ThreadLensCoordinator:
     """Create a coordinator for a config entry."""
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
     session = async_get_clientsession(hass)
-    api = ThreadLensApi(session, entry_data[CONF_URL])
-    coordinator = ThreadLensCoordinator(hass, api)
+    api = ThreadLensApi(session, entry.data[CONF_URL])
+    coordinator = ThreadLensCoordinator(hass, api, entry)
     await coordinator.async_config_entry_first_refresh()
     return coordinator
