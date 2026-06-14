@@ -51,7 +51,7 @@ jobs:
 
           manifest = json.loads((integration / "manifest.json").read_text())
           assert manifest["domain"] == "threadlens"
-          assert manifest["version"] == "0.1.17"
+          assert manifest["version"] == "0.1.18"
           for dep in ("http", "websocket_api", "frontend", "panel_custom"):
               assert dep in manifest["dependencies"], f"Missing manifest dependency: {dep}"
 

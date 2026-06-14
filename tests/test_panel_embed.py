@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from support import load_submodule, make_hass
 
 panel_embed = load_submodule("panel_embed")
 evaluate_iframe_embed_safety = panel_embed.evaluate_iframe_embed_safety
 build_panel_access = panel_embed.build_panel_access
 embed_dashboard_enabled = panel_embed.embed_dashboard_enabled
+
+PANEL_JS = (
+    Path(__file__).resolve().parents[1]
+    / "custom_components"
+    / "threadlens"
+    / "panel"
+    / "threadlens-panel.js"
+)
+
+
+def _panel_js_text() -> str:
+    return PANEL_JS.read_text(encoding="utf-8")
 
 
 def test_embed_dashboard_defaults_to_false() -> None:
@@ -87,3 +101,20 @@ def test_build_panel_access_blocks_iframe_when_unsafe_even_if_enabled() -> None:
     assert panel["show_embedded_dashboard"] is False
     assert panel["iframe_embed_allowed"] is False
     assert panel["iframe_blocked_reason"] is not None
+
+
+def test_panel_js_uses_ha_menu_button_outside_iframe() -> None:
+    contents = _panel_js_text()
+    assert "<ha-menu-button" in contents
+    assert "_syncHaMenuButton" in contents
+    assert "_panelHeader" in contents
+    assert "embed-layout" in contents
+    assert "embed-body" in contents
+
+
+def test_panel_js_narrow_setter_and_no_manual_menu_dispatch() -> None:
+    contents = _panel_js_text()
+    assert "set narrow(n)" in contents
+    assert "hass-toggle-menu" not in contents
+    assert "100vh" not in contents
+    assert "menu-btn" in contents

@@ -30,6 +30,7 @@ EVENT_LIMIT = 100
 DATA_FRONTEND_REGISTERED = "frontend_registered"
 DATA_WEBSOCKET_REGISTERED = "websocket_registered"
 DATA_HTTP_REGISTERED = "http_registered"
+PANEL_STATE_KEY = "_panel_state"
 
 ATTR_HEALTH_REASONS = "health_reasons"
 ATTR_HEALTH_REASONS_RAW = "health_reasons_raw"
