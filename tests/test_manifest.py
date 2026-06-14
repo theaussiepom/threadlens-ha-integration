@@ -14,7 +14,7 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["domain"] == "threadlens"
     assert manifest["name"] == "ThreadLens"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.1.6"
+    assert manifest["version"] == "0.1.7"
     assert manifest["integration_type"] == "hub"
     assert manifest["iot_class"] == "local_polling"
     assert "aiohttp" in manifest["requirements"][0]
@@ -27,6 +27,8 @@ def test_hacs_branding_assets_exist() -> None:
     assert (REPO_ROOT / "logo.png").is_file()
     assert (INTEGRATION_DIR / "brand" / "icon.png").is_file()
     assert (INTEGRATION_DIR / "brand" / "logo.png").is_file()
+    assert (INTEGRATION_DIR / "brand" / "icon@2x.png").is_file()
+    assert (INTEGRATION_DIR / "brand" / "logo@2x.png").is_file()
     assert (REPO_ROOT / "docs" / "threadlens-icon.svg").is_file()
     assert (REPO_ROOT / "docs" / "threadlens-logo.svg").is_file()
 
@@ -41,6 +43,7 @@ def test_hacs_json_parses() -> None:
     assert hacs["name"] == "ThreadLens"
     assert hacs["render_readme"] is True
     assert "homeassistant" in hacs
+    assert hacs["homeassistant"] == "2026.3.0"
 
 
 def test_translations_include_config_flow_errors() -> None:

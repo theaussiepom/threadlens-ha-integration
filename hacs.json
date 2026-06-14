@@ -3,7 +3,7 @@
   "content_in_root": false,
   "filename": "threadlens",
   "render_readme": true,
-  "homeassistant": "2024.1.0",
+  "homeassistant": "2026.3.0",
   "domains": ["threadlens"],
   "country": ["GB", "US", "AU"]
 }
