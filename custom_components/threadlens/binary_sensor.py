@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import ThreadLensCoordinator
 from .entity import ThreadLensEntity
+from .panel_data import summarize_matter_read_probes
 
 
 async def async_setup_entry(
@@ -24,6 +25,9 @@ async def async_setup_entry(
             ThreadLensMqttConnectedBinarySensor(coordinator, entry.entry_id, "mqtt_connected"),
             ThreadLensMdnsObserverBinarySensor(
                 coordinator, entry.entry_id, "mdns_observer_running"
+            ),
+            ThreadLensMatterReadProbeIssuesPresentBinarySensor(
+                coordinator, entry.entry_id, "matter_read_probe_issues_present"
             ),
         ]
     )
@@ -59,3 +63,19 @@ class ThreadLensMdnsObserverBinarySensor(ThreadLensEntity, BinarySensorEntity):
         if not isinstance(mdns, dict):
             return None
         return bool(mdns.get("observer_running"))
+
+
+class ThreadLensMatterReadProbeIssuesPresentBinarySensor(ThreadLensEntity, BinarySensorEntity):
+    _attr_translation_key = "matter_read_probe_issues_present"
+
+    @property
+    def is_on(self) -> bool | None:
+        if not self.coordinator.data:
+            return None
+        nodes = [
+            node for node in (self.coordinator.data.matter_nodes or []) if isinstance(node, dict)
+        ]
+        summary = summarize_matter_read_probes(nodes)
+        if not summary["read_probe_diagnostics_available"]:
+            return None
+        return summary["matter_read_probe_issues"] > 0

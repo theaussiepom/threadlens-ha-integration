@@ -18,6 +18,18 @@ class _Data:
     last_update = "2026-06-14T12:00:00+00:00"
     health = {"overall": {"state": "healthy", "reasons": []}}
     status = {"mode": "both", "reports": {}, "collectors": {"mqtt": {"connected": True}}}
+    matter_nodes = [
+        {
+            "node_id": 3,
+            "friendly_name": "Blind",
+            "available": True,
+            "read_probe_diagnostics_available": True,
+            "last_read_probe_ok": False,
+            "read_probe_failures_24h": 1,
+            "ping_diagnostics_available": True,
+            "last_ping_ok": False,
+        }
+    ]
 
 
 def test_diagnostics_redacts_url_and_includes_embed_setting() -> None:
@@ -38,3 +50,9 @@ def test_diagnostics_redacts_url_and_includes_embed_setting() -> None:
     assert result["connected"] is True
     assert result["version"]["version"] == "0.2.0"
     assert result["last_update"] == "2026-06-14T12:00:00+00:00"
+    assert result["matter_read_probe_diagnostics_available"] is True
+    assert result["matter_read_probe_issues"] == 1
+    assert result["ping_diagnostics_available"] is True
+    assert result["ping_probe_failures"] == 1
+    assert result["read_probe_issue_nodes"][0]["detail"]
+    assert "command" not in result["read_probe_issue_nodes"][0]["detail"].lower()

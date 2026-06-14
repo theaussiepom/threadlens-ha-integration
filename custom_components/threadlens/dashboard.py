@@ -25,6 +25,10 @@ REASON_LABELS: dict[str, str] = {
     "otbr_unreachable": "OTBR REST API unreachable",
     "matter_server_disconnected": "Matter server disconnected",
     "matter_node_unavailable": "Matter node unavailable",
+    "matter_node_read_probe_failed": "Safe read probe failed recently",
+    "matter_node_read_probe_failures_24h": "Repeated safe read probe failures (24h)",
+    "matter_node_read_probe_diagnostics_limited": "Read diagnostics limited",
+    "matter_node_ping_probe_failed": "Ping probe failed recently",
     "primary_thread_network_unknown": "Primary Thread network unknown",
     "configured_otbrs_disagree_on_ext_pan_id": "Configured OTBRs disagree on network",
 }
@@ -46,7 +50,12 @@ _MISMATCH_ONLY_REASON = "otbr_rest_endpoint_mismatch"
 # Reasons that are informational background observations on their own and should
 # not, by themselves, make the dashboard look unhealthy. Raw codes remain in
 # diagnostics/reasons_all.
-_INFO_REASON_CODES = frozenset({"foreign_trel_services_observed"})
+_INFO_REASON_CODES = frozenset(
+    {
+        "foreign_trel_services_observed",
+        "matter_node_read_probe_diagnostics_limited",
+    }
+)
 
 # Event windowing for the node-health / incident view.
 DEFAULT_EVENT_WINDOW = "24h"

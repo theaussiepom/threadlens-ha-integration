@@ -193,6 +193,7 @@ class ThreadLensPanel extends HTMLElement {
         ${!this._loading && !connected ? this._disconnectedCard(s, coreUrl) : ""}
         ${!this._loading && connected ? this._findingCard(s) : ""}
         ${!this._loading && connected ? this._statsCard(s) : ""}
+        ${!this._loading && connected ? this._readProbeCard(s) : ""}
         ${!this._loading && connected ? this._networksCard(s) : ""}
         ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
         <p class="note">
@@ -301,10 +302,13 @@ class ThreadLensPanel extends HTMLElement {
   _findingCard(s) {
     const finding = s.current_finding;
     const unavailable = s.matter_nodes_unavailable || 0;
+    const readIssues = s.matter_read_probe_issues || 0;
     const incidentLine =
       unavailable > 0
         ? `<span class="badge incident">${unavailable} unavailable node${unavailable === 1 ? "" : "s"}</span>`
-        : `<span class="badge ok">No unavailable nodes</span>`;
+        : readIssues > 0
+          ? `<span class="badge watch">${readIssues} read probe issue${readIssues === 1 ? "" : "s"}</span>`
+          : `<span class="badge ok">No unavailable nodes</span>`;
     return `
       <section class="card">
         <div class="card-head">
@@ -328,16 +332,72 @@ class ThreadLensPanel extends HTMLElement {
   _statsCard(s) {
     const unavailAccent =
       (s.matter_nodes_unavailable || 0) > 0 ? SEVERITY.incident.color : undefined;
+    const readAccent =
+      (s.matter_read_probe_issues || 0) > 0 ? SEVERITY.watch.color : undefined;
     const mqttAccent = s.mqtt_connected ? undefined : SEVERITY.watch.color;
     return `
       <section class="card">
         <div class="grid">
           ${this._stat("Matter nodes", s.matter_node_count || 0)}
           ${this._stat("Unavailable", s.matter_nodes_unavailable || 0, unavailAccent)}
+          ${this._stat("Read probe issues", s.matter_read_probe_issues || 0, readAccent)}
           ${this._stat("OTBRs", s.otbr_count || 0)}
           ${this._stat("Networks", s.network_count || 0)}
           ${this._stat("MQTT", s.mqtt_connected ? "Connected" : "Disconnected", mqttAccent)}
         </div>
+      </section>
+    `;
+  }
+
+  _readProbeCard(s) {
+    if (!s.read_probe_diagnostics_available) {
+      return `
+        <section class="card">
+          <h2>Matter read probes</h2>
+          <p class="muted">
+            Read probe diagnostics are not available yet. Enable optional Matter read probes in
+            ThreadLens Core if your Matter Server supports safe read_attribute probes.
+          </p>
+        </section>
+      `;
+    }
+    const issues = s.read_probe_issue_nodes || [];
+    const availableFailed = s.matter_read_probe_available_but_failed || 0;
+    const summaryLine =
+      issues.length > 0
+        ? `${s.matter_read_probe_issues || 0} node${(s.matter_read_probe_issues || 0) === 1 ? "" : "s"} with read probe issues in the last 24h.`
+        : "No read probe issues observed recently.";
+    const rows =
+      issues.length > 0
+        ? issues
+            .map(
+              (node) => `
+          <div class="net-row">
+            <div class="net-main">
+              <span class="dot" style="background:${SEVERITY.watch.color}"></span>
+              <div>
+                <div class="net-name">${esc(node.name)}</div>
+                <div class="net-sub">${esc(node.detail)}</div>
+              </div>
+            </div>
+          </div>
+        `
+            )
+            .join("")
+        : `<p class="muted">Safe read probes are reaching configured nodes.</p>`;
+    const availableNote =
+      availableFailed > 0
+        ? `<p class="muted">Some available nodes failed recent safe read probes. This is read reachability, not proof that Home Assistant commands failed.</p>`
+        : "";
+    return `
+      <section class="card">
+        <div class="card-head">
+          <h2>Matter read probes</h2>
+          <span class="badge ${issues.length ? "watch" : "ok"}">${issues.length ? "Needs attention" : "OK"}</span>
+        </div>
+        <p class="finding">${esc(summaryLine)}</p>
+        ${availableNote}
+        ${rows}
       </section>
     `;
   }

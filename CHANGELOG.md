@@ -2,6 +2,16 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
+## [0.1.17] - 2026-06-15
+
+### Added
+- Native companion panel Matter read probe summary (issue count, per-node read reachability notes)
+- Diagnostics fields for read probe and ping probe summaries from Core
+- Global `matter_read_probe_issues` sensor and `matter_read_probe_issues_present` binary sensor
+
+### Changed
+- Health reason labels aligned with Core safe read probe wording
+
 ## [0.1.16] - 2026-06-15
 
 ### Added
