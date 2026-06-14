@@ -74,3 +74,10 @@ def test_panel_shows_actionable_errors_instead_of_endless_loading():
     assert "ThreadLens panel unavailable" in contents
     assert "ThreadLens API unavailable" in contents
     assert "Invalid ThreadLens dashboard response" in contents
+
+
+def test_panel_collates_home_assistant_names():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "Home Assistant names" in contents
+    assert "_haNamesSection" in contents
+    assert "ha_entity_ids" in contents

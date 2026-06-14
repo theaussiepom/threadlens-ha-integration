@@ -25,7 +25,11 @@ from .const import (
     REPORT_PROXY_URL,
 )
 from .dashboard import build_dashboard_payload, build_disconnected_payload
-from .ha_matter_names import build_matter_node_ha_lookup, resolve_ha_names_for_node
+from .ha_matter_names import (
+    build_matter_node_ha_lookup,
+    coerce_matter_node_id,
+    resolve_ha_names_for_node,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +131,7 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
                 for node in data.matter_nodes:
                     if not isinstance(node, dict):
                         continue
-                    node_id = node.get("node_id")
+                    node_id = coerce_matter_node_id(node.get("node_id"))
                     if node_id is None:
                         continue
                     resolved = resolve_ha_names_for_node(node, ha_lookup)

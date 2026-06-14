@@ -325,10 +325,15 @@ def _matter_section(
         for entry in health.get("matter_nodes", []) or []:
             health_states.append(_state(entry))
 
+    ha_names_matched = sum(1 for node in nodes if _node_has_ha_names(node))
+    ha_names_unmatched = len(nodes) - ha_names_matched
+
     return {
         "servers": servers_total,
         "servers_connected": servers_connected,
         "node_count": len(matter_nodes),
+        "ha_names_matched": ha_names_matched,
+        "ha_names_unmatched": ha_names_unmatched,
         "unavailable_count": len(unavailable_nodes),
         "unavailable_nodes": [
             {"node_id": n["node_id"], "server_id": n["server_id"], "friendly_name": n["name"]}
@@ -427,6 +432,41 @@ def classify_matter_node(node: dict[str, Any], node_events: list[dict[str, Any]]
     return "unknown"
 
 
+def _coerce_node_id(value: Any) -> int | None:
+    """Normalise Matter node IDs for HA lookup key matching."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.lower().startswith("0x"):
+            try:
+                return int(raw, 16)
+            except ValueError:
+                return None
+        lowered = raw.lower()
+        if len(raw) == 16 and all(char in "0123456789abcdef" for char in lowered):
+            try:
+                return int(lowered, 16)
+            except ValueError:
+                return None
+        if raw.isdigit():
+            return int(raw)
+        if all(char in "0123456789abcdef" for char in lowered):
+            try:
+                return int(lowered, 16)
+            except ValueError:
+                return None
+    return None
+
+
+def _node_has_ha_names(node: dict[str, Any]) -> bool:
+    return bool(node.get("ha_device_name") or node.get("ha_entity_names"))
+
+
 def _node_entry(
     node: dict[str, Any],
     events: list[dict[str, Any]],
@@ -441,7 +481,7 @@ def _node_entry(
     last_event_at = node_events[0].get("timestamp") if node_events else None
     classification = classify_matter_node(node, node_events)
     matter_name = _node_label(node)
-    node_id = node.get("node_id")
+    node_id = _coerce_node_id(node.get("node_id"))
     ha_fields = (ha_matter_names or {}).get(node_id, {}) if node_id is not None else {}
     ha_device_name = ha_fields.get("ha_device_name")
     ha_entity_names = ha_fields.get("ha_entity_names") or []
