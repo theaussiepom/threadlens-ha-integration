@@ -85,6 +85,55 @@ def test_build_lookup_maps_matter_entity_unique_id_without_device_link():
     assert match["ha_entity_ids"] == ["cover.study_blind_1"]
 
 
+def test_build_lookup_maps_cover_entity_by_unique_id_when_platform_missing():
+    lookup = ha_matter_names.build_matter_ha_lookup_from_registry(
+        [],
+        [
+            _entity(
+                device_id=None,
+                platform=None,
+                domain="cover",
+                name=None,
+                original_name=None,
+                unique_id="ABCD1234-000000000000001D-MatterNodeDevice-1-cover-4-768",
+            )
+        ],
+    )
+    match = lookup["by_node_id"][29]
+    assert match["ha_entity_names"] == ["cover.study_blind_1"]
+    assert match["ha_entity_ids"] == ["cover.study_blind_1"]
+
+
+def test_build_lookup_uses_device_serial_number_field():
+    lookup = ha_matter_names.build_matter_ha_lookup_from_registry(
+        [
+            _device(
+                identifiers=set(),
+                serial_number="scm-mt-2408-0753",
+                name="Living Room Blind",
+            )
+        ],
+        [_entity()],
+    )
+    resolved = ha_matter_names.resolve_ha_names_for_node(
+        {"node_id": 29, "serial": "SCM-MT-2408-0753"},
+        lookup,
+    )
+    assert resolved["ha_device_name"] == "Living Room Blind"
+
+
+def test_resolve_matches_serial_from_friendly_name():
+    lookup = ha_matter_names.build_matter_ha_lookup_from_registry(
+        [_device(identifiers={("matter", "serial_SCM-MT-2408-0753")}, name="Living Room Blind")],
+        [_entity()],
+    )
+    resolved = ha_matter_names.resolve_ha_names_for_node(
+        {"node_id": 99, "friendly_name": "SCM-MT-2408-0753"},
+        lookup,
+    )
+    assert resolved["ha_device_name"] == "Living Room Blind"
+
+
 def test_resolve_matches_string_node_id_from_threadlens():
     lookup = ha_matter_names.build_matter_ha_lookup_from_registry(
         [_device()],

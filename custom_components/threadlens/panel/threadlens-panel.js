@@ -363,7 +363,7 @@ class ThreadLensPanel extends HTMLElement {
             <strong>Home Assistant names</strong>
             <span class="tl-muted">0 / ${esc(nodes.length)} matched</span>
           </div>
-          <p class="tl-muted">No Matter nodes matched HA device or entity registry entries yet. Reload ThreadLens after Matter devices are commissioned.</p>
+          <p class="tl-muted">No Matter nodes matched HA device or entity registry entries yet. Blinds must be commissioned in the Home Assistant Matter integration (not only visible to ThreadLens). Reload ThreadLens after Matter devices are present.</p>
         </div>`;
     }
 
