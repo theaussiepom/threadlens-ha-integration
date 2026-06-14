@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from support import load_dashboard_module
 
 dashboard = load_dashboard_module()
@@ -195,3 +197,55 @@ def test_events_payload_bounded_and_windowed():
     payload = _payload([_node(1, True)], events=[])
     assert payload["events"]["window"] == "24h"
     assert payload["events"]["items"] == []
+
+
+def test_node_availability_metrics_median_offline():
+    compute_node_availability_metrics = dashboard.compute_node_availability_metrics
+    now = datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC)
+    events = [
+        _event(1, "matter_node.unavailable", "2026-06-14T10:00:00Z"),
+        _event(1, "matter_node.recovered", "2026-06-14T10:10:00Z"),
+        _event(1, "matter_node.unavailable", "2026-06-14T11:00:00Z"),
+        _event(1, "matter_node.recovered", "2026-06-14T11:30:00Z"),
+    ]
+    metrics = compute_node_availability_metrics(
+        events,
+        available=True,
+        availability_flaps_24h=2,
+        now=now,
+    )
+    assert metrics["unsubscribe_count_24h"] == 2
+    assert metrics["resubscribe_count_24h"] == 2
+    assert metrics["availability_cycles_24h"] == 2
+    assert metrics["median_offline_seconds_24h"] == 1200
+    assert metrics["total_offline_seconds_24h"] == 2400
+
+
+def test_node_availability_metrics_include_ongoing_outage():
+    compute_node_availability_metrics = dashboard.compute_node_availability_metrics
+    now = datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC)
+    events = [_event(2, "matter_node.unavailable", "2026-06-14T11:30:00Z")]
+    metrics = compute_node_availability_metrics(
+        events,
+        available=False,
+        now=now,
+    )
+    assert metrics["unsubscribe_count_24h"] == 1
+    assert metrics["resubscribe_count_24h"] == 0
+    assert metrics["median_offline_seconds_24h"] == 1800
+    assert metrics["offline_episodes_24h"] == 1
+
+
+def test_payload_includes_availability_metrics_on_nodes():
+    events = [
+        _event(3, "matter_node.unavailable", "2026-06-14T10:00:00Z"),
+        _event(3, "matter_node.recovered", "2026-06-14T10:05:00Z"),
+    ]
+    payload = _payload(
+        [_node(3, True, availability_flaps_24h=1)],
+        events=events,
+    )
+    node = payload["matter"]["nodes"][0]
+    assert node["resubscribe_count_24h"] == 1
+    assert node["unsubscribe_count_24h"] == 1
+    assert node["median_offline_seconds_24h"] == 300

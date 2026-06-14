@@ -11,6 +11,7 @@ observations into a frontend-friendly structure.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 # Friendly, non-causal labels for known health reason codes. Unknown codes are
@@ -412,6 +413,111 @@ def _events_for_subject(
     return [event for event in events if event.get("subject_id") == subject_id]
 
 
+def _parse_event_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _median_seconds(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2
+
+
+def compute_node_availability_metrics(
+    node_events: list[dict[str, Any]],
+    *,
+    available: bool | None,
+    availability_flaps_24h: Any = None,
+    subscription_flaps_24h: Any = None,
+    subscription_diagnostics_available: bool = False,
+    now: datetime | None = None,
+    window_hours: int = 24,
+) -> dict[str, Any]:
+    """Derive per-node command-availability churn from ThreadLens node events."""
+    now = now or datetime.now(UTC)
+    window_start = now - timedelta(hours=window_hours)
+
+    transitions: list[tuple[datetime, str]] = []
+    for event in node_events:
+        event_type = event.get("event_type")
+        if event_type not in (_NODE_UNAVAILABLE_EVENT, _NODE_RECOVERED_EVENT):
+            continue
+        timestamp = _parse_event_timestamp(event.get("timestamp"))
+        if timestamp is None or timestamp < window_start:
+            continue
+        transitions.append((timestamp, event_type))
+    transitions.sort(key=lambda item: item[0])
+
+    unavailable_count = sum(
+        1 for _, event_type in transitions if event_type == _NODE_UNAVAILABLE_EVENT
+    )
+    recovered_count = sum(
+        1 for _, event_type in transitions if event_type == _NODE_RECOVERED_EVENT
+    )
+
+    offline_durations: list[float] = []
+    offline_start: datetime | None = None
+    for timestamp, event_type in transitions:
+        if event_type == _NODE_UNAVAILABLE_EVENT:
+            if offline_start is None:
+                offline_start = timestamp
+            continue
+        if offline_start is not None:
+            offline_durations.append((timestamp - offline_start).total_seconds())
+            offline_start = None
+
+    if available is False and offline_start is not None:
+        offline_durations.append((now - offline_start).total_seconds())
+
+    median_offline = _median_seconds(offline_durations)
+
+    if subscription_diagnostics_available and isinstance(subscription_flaps_24h, int):
+        cycle_count = subscription_flaps_24h
+        metric_source = "subscription"
+    elif isinstance(availability_flaps_24h, int):
+        cycle_count = availability_flaps_24h
+        metric_source = "availability"
+    else:
+        cycle_count = unavailable_count
+        metric_source = "availability"
+
+    return {
+        "unavailable_transitions_24h": unavailable_count,
+        "recovered_transitions_24h": recovered_count,
+        "unsubscribe_count_24h": unavailable_count,
+        "resubscribe_count_24h": recovered_count,
+        "availability_cycles_24h": cycle_count,
+        "availability_metric_source": metric_source,
+        "subscription_diagnostics_available": bool(subscription_diagnostics_available),
+        "subscription_flaps_24h": subscription_flaps_24h,
+        "availability_flaps_24h": availability_flaps_24h,
+        "median_offline_seconds_24h": (
+            int(median_offline) if median_offline is not None else None
+        ),
+        "offline_episodes_24h": len(offline_durations),
+        "total_offline_seconds_24h": int(sum(offline_durations)),
+    }
+
+
 def classify_matter_node(node: dict[str, Any], node_events: list[dict[str, Any]]) -> str:
     """Classify a Matter node as unavailable / recently_unstable / healthy / unknown."""
     available = node.get("available")
@@ -478,6 +584,15 @@ def _node_entry(
         1 for e in node_events if e.get("event_type") == _NODE_UNAVAILABLE_EVENT
     )
     recent_recovered = sum(1 for e in node_events if e.get("event_type") == _NODE_RECOVERED_EVENT)
+    availability_metrics = compute_node_availability_metrics(
+        node_events,
+        available=node.get("available"),
+        availability_flaps_24h=node.get("availability_flaps_24h"),
+        subscription_flaps_24h=node.get("subscription_flaps_24h"),
+        subscription_diagnostics_available=bool(
+            node.get("subscription_diagnostics_available")
+        ),
+    )
     last_event_at = node_events[0].get("timestamp") if node_events else None
     classification = classify_matter_node(node, node_events)
     matter_name = _node_label(node)
@@ -504,6 +619,7 @@ def _node_entry(
         "recent_unavailable_count": recent_unavailable,
         "recent_recovered_count": recent_recovered,
         "last_event_at": last_event_at,
+        **availability_metrics,
         **ha_fields,
     }
 
