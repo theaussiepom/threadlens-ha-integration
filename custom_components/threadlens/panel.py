@@ -15,6 +15,7 @@ from .const import (
     DOMAIN,
     PANEL_FILENAME,
     PANEL_ICON,
+    PANEL_STATE_KEY,
     PANEL_STATIC_URL,
     PANEL_TITLE,
     PANEL_URL_PATH,
@@ -27,9 +28,6 @@ from .panel_data import build_panel_summary
 _LOGGER = logging.getLogger(__name__)
 
 PANEL_DIR = os.path.join(os.path.dirname(__file__), "panel")
-
-
-_PANEL_STATE_KEY = "_panel_state"
 
 
 @callback
@@ -87,12 +85,20 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
 async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str) -> None:
     """Register the native companion panel in the Home Assistant sidebar."""
     await async_setup_frontend(hass)
-    state = hass.data.setdefault(DOMAIN, {}).setdefault(_PANEL_STATE_KEY, {})
+    state = hass.data.setdefault(DOMAIN, {}).setdefault(PANEL_STATE_KEY, {})
 
-    if PANEL_URL_PATH in hass.data.get(frontend.DATA_PANELS, {}):
-        async_update_panel_core_url(hass, core_url)
-        state["panel_registered"] = True
-        return
+    panels = hass.data.get(frontend.DATA_PANELS, {})
+    existing = panels.get(PANEL_URL_PATH)
+    if existing is not None:
+        config = existing.get("config") or {}
+        custom_meta = config.get("_panel_custom") or {}
+        if custom_meta.get("embed_iframe") or not config.get("core_url"):
+            frontend.async_remove_panel(hass, PANEL_URL_PATH)
+            state["panel_registered"] = False
+        else:
+            async_update_panel_core_url(hass, core_url)
+            state["panel_registered"] = True
+            return
 
     if state.get("panel_registered"):
         async_update_panel_core_url(hass, core_url)
@@ -124,7 +130,7 @@ def async_update_panel_core_url(hass: HomeAssistant, core_url: str) -> None:
 
 async def async_unregister_panel(hass: HomeAssistant, entry_id: str) -> None:
     """Remove the sidebar panel when the config entry unloads."""
-    state = hass.data.get(DOMAIN, {}).get(_PANEL_STATE_KEY, {})
+    state = hass.data.get(DOMAIN, {}).get(PANEL_STATE_KEY, {})
     if not state.get("panel_registered"):
         return
     if PANEL_URL_PATH in hass.data.get(frontend.DATA_PANELS, {}):

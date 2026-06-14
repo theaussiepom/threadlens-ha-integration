@@ -52,6 +52,8 @@ def test_panel_registers_with_core_url_config_and_embed_iframe_false():
     panel_py = (INTEGRATION_DIR / "panel.py").read_text(encoding="utf-8")
     assert 'config={"core_url": core_url}' in panel_py
     assert "embed_iframe=False" in panel_py
+    assert "PANEL_STATE_KEY" in panel_py
+    assert 'custom_meta.get("embed_iframe")' in panel_py
 
 
 def test_panel_uses_zigbeelens_style_companion_views():
@@ -61,8 +63,9 @@ def test_panel_uses_zigbeelens_style_companion_views():
     assert "Integration health" in contents
     assert "Open full ThreadLens dashboard" in contents
     assert "Try Embedded View" in contents
-    assert "Back to Summary" in contents
     assert "embed-frame" in contents
+    assert "embed-layout" in contents
+    assert "<ha-menu-button" in contents
     assert 'rel="noopener noreferrer"' in contents
 
 

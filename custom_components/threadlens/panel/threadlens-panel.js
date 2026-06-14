@@ -6,7 +6,8 @@
  * automatically instead of the native summary screen.
  *
  * Primary action: Open Full Dashboard (new tab — always reliable).
- * Secondary action: Try Embedded View (when mixed-content blocks auto-embed).
+ * Uses Home Assistant's built-in ha-menu-button in the panel header (outside the
+ * Core iframe) so the HA sidebar can be reopened when hidden.
  */
 
 const SEVERITY = {
@@ -72,10 +73,19 @@ class ThreadLensPanel extends HTMLElement {
     this._copied = false;
     this._configCoreUrl = "";
     this._view = "summary";
+    this._narrow = false;
   }
 
   set panel(panel) {
     this._configCoreUrl = (panel && panel.config && panel.config.core_url) || "";
+  }
+
+  set narrow(n) {
+    this._narrow = Boolean(n);
+    this.classList.toggle("narrow", this._narrow);
+    if (this.shadowRoot?.childNodes.length) {
+      this._render();
+    }
   }
 
   set hass(hass) {
@@ -83,7 +93,9 @@ class ThreadLensPanel extends HTMLElement {
     this._hass = hass;
     if (first && !this._loaded) {
       this._loadSummary();
+      return;
     }
+    this._syncHaMenuButton();
   }
 
   connectedCallback() {
@@ -141,8 +153,21 @@ class ThreadLensPanel extends HTMLElement {
     return `<div class="cta-row">${open}${embed}</div>`;
   }
 
-  _backButton() {
-    return `<button type="button" class="btn" id="back-summary">Back to Summary</button>`;
+  _panelHeader({ title = "" } = {}) {
+    const titleHtml =
+      this._narrow && title ? `<div class="panel-header-title">${esc(title)}</div>` : "";
+    return `<div class="panel-header">
+      <ha-menu-button id="menu-btn"></ha-menu-button>
+      ${titleHtml}
+    </div>`;
+  }
+
+  _syncHaMenuButton() {
+    const menuBtn = this.shadowRoot?.querySelector("ha-menu-button");
+    if (!menuBtn) return false;
+    menuBtn.hass = this._hass;
+    menuBtn.narrow = this._narrow;
+    return true;
   }
 
   _tryEmbeddedView() {
@@ -152,19 +177,17 @@ class ThreadLensPanel extends HTMLElement {
     this._render();
   }
 
-  _backToSummary() {
-    this._view = "summary";
-    this._render();
-  }
-
   _render() {
     const coreUrl = this._coreUrl();
 
     if (this._view === "embedded") {
       this.shadowRoot.innerHTML = `
         <style>${ThreadLensPanel.styles}</style>
-        <div class="wrap embed-wrap">
-          ${this._embeddedView(coreUrl)}
+        <div class="embed-layout">
+          ${this._panelHeader({ title: "ThreadLens" })}
+          <div class="embed-body">
+            ${this._embeddedView(coreUrl)}
+          </div>
         </div>
       `;
       this._wire();
@@ -174,6 +197,7 @@ class ThreadLensPanel extends HTMLElement {
     if (this._view === "embed_blocked") {
       this.shadowRoot.innerHTML = `
         <style>${ThreadLensPanel.styles}</style>
+        ${this._panelHeader({ title: "ThreadLens" })}
         <div class="wrap">
           ${this._embedBlockedView(coreUrl)}
         </div>
@@ -187,6 +211,7 @@ class ThreadLensPanel extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <style>${ThreadLensPanel.styles}</style>
+      ${this._panelHeader({ title: "ThreadLens" })}
       <div class="wrap">
         ${this._heroCard(s, coreUrl, connected)}
         ${this._loading ? this._loadingCard() : ""}
@@ -200,6 +225,8 @@ class ThreadLensPanel extends HTMLElement {
           The native panel works for all installs. Open Full Dashboard opens the full
           dashboard in a new tab. When Home Assistant and ThreadLens Core use the same
           protocol (both HTTP or both HTTPS), the full dashboard opens here automatically.
+          Use the menu button above to reopen Home Assistant navigation when the sidebar
+          is hidden.
         </p>
       </div>
     `;
@@ -208,24 +235,16 @@ class ThreadLensPanel extends HTMLElement {
   }
 
   _embeddedView(coreUrl) {
-    const iframe = coreUrl
-      ? `<iframe
-          class="embed-frame"
-          src="${esc(coreUrl)}"
-          title="ThreadLens full dashboard"
-          loading="lazy"
-          referrerpolicy="no-referrer"
-        ></iframe>`
-      : `<p class="muted">Core URL is not configured.</p>`;
-    return `
-      <section class="card embed-card">
-        <div class="embed-toolbar">
-          ${this._backButton()}
-          ${this._openDashboardButton(coreUrl, "embed-open")}
-        </div>
-        ${iframe}
-      </section>
-    `;
+    if (!coreUrl) {
+      return `<p class="muted embed-empty">Core URL is not configured.</p>`;
+    }
+    return `<iframe
+      class="embed-frame"
+      src="${esc(coreUrl)}"
+      title="ThreadLens full dashboard"
+      loading="lazy"
+      referrerpolicy="no-referrer"
+    ></iframe>`;
   }
 
   _embedBlockedView(coreUrl) {
@@ -245,7 +264,6 @@ class ThreadLensPanel extends HTMLElement {
         </p>
         <div class="actions">
           ${this._openDashboardButton(coreUrl)}
-          ${this._backButton()}
         </div>
       </section>
     `;
@@ -465,11 +483,10 @@ class ThreadLensPanel extends HTMLElement {
   }
 
   _wire() {
+    this._syncHaMenuButton();
+
     const tryEmbed = this.shadowRoot.getElementById("try-embed");
     if (tryEmbed) tryEmbed.addEventListener("click", () => this._tryEmbeddedView());
-
-    const back = this.shadowRoot.getElementById("back-summary");
-    if (back) back.addEventListener("click", () => this._backToSummary());
 
     const reload = this.shadowRoot.getElementById("reload");
     if (reload) reload.addEventListener("click", () => this._loadSummary());
@@ -496,12 +513,42 @@ class ThreadLensPanel extends HTMLElement {
 
 ThreadLensPanel.styles = `
   :host {
-    display: block;
+    display: flex;
+    flex-direction: column;
     background: var(--primary-background-color, #f5f5f5);
     min-height: 100%;
+    height: 100%;
     color: var(--primary-text-color, #212121);
     font-family: var(--paper-font-body1_-_font-family, Roboto, system-ui, sans-serif);
-    overflow-x: clip;
+    overflow: hidden;
+  }
+  .embed-layout {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+  }
+  .embed-body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-left: max(0px, env(safe-area-inset-left, 0));
+    color: var(--primary-text-color, #212121);
+    font-family: var(--paper-font-body1_-_font-family, Roboto, Noto, sans-serif);
+    font-size: var(--paper-font-body1_-_font-size, 14px);
+  }
+  .panel-header-title {
+    font-weight: 500;
+    line-height: 1.25;
+    padding: 8px 0;
   }
   .wrap {
     max-width: 880px;
@@ -515,10 +562,8 @@ ThreadLensPanel.styles = `
     gap: 16px;
     box-sizing: border-box;
   }
-  .embed-wrap {
-    max-width: none;
-    height: calc(100vh - 32px);
-    min-height: 480px;
+  .embed-empty {
+    padding: 16px;
   }
   .card {
     background: var(--card-background-color, #fff);
@@ -527,13 +572,6 @@ ThreadLensPanel.styles = `
     padding: 20px;
     box-shadow: var(--ha-card-box-shadow, none);
     overflow: hidden;
-  }
-  .embed-card {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    padding: 12px;
   }
   h1 { font-size: 1.4rem; margin: 0; line-height: 1.2; }
   h2 { font-size: 1.05rem; margin: 0 0 12px; }
@@ -628,26 +666,11 @@ ThreadLensPanel.styles = `
   .cta-row .btn.secondary {
     flex: 1 1 160px;
   }
-  .embed-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 12px;
-    flex-shrink: 0;
-  }
-  .embed-toolbar .btn.primary.embed-open {
-    margin-left: auto;
-    min-height: 44px;
-    font-size: 0.95rem;
-    flex: 1 1 auto;
-    width: auto;
-  }
   .embed-frame {
     width: 100%;
     flex: 1;
-    min-height: 360px;
-    border: 1px solid var(--divider-color, #e0e0e0);
-    border-radius: 10px;
+    min-height: 0;
+    border: 0;
     background: var(--card-background-color, #fff);
   }
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -697,7 +720,6 @@ ThreadLensPanel.styles = `
   }
   @media (max-width: 600px) {
     .wrap { padding: 12px; gap: 12px; }
-    .embed-wrap { height: calc(100vh - 24px); min-height: 420px; }
     .card { padding: 16px; }
     .hero-head { flex-direction: column; align-items: stretch; }
     .badges { justify-content: flex-start; }
@@ -712,8 +734,6 @@ ThreadLensPanel.styles = `
     .cta-row { flex-direction: column; }
     .cta-row .btn.primary,
     .cta-row .btn.secondary { width: 100%; flex: 1 1 auto; }
-    .embed-toolbar { flex-direction: column; }
-    .embed-toolbar .btn.primary.embed-open { margin-left: 0; width: 100%; }
   }
 `;
 

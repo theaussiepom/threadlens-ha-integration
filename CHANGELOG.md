@@ -2,6 +2,16 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
+## [0.1.18] - 2026-06-15
+
+### Fixed
+- Embedded Core dashboard panel now uses Home Assistant's native `ha-menu-button` above the iframe so the main HA sidebar can be reopened when hidden
+
+### Changed
+- Embedded layout uses flex column sizing instead of `100vh` height hacks
+- Panel registration re-registers stale panels missing `core_url` or using `embed_iframe=True`
+- Panel unregisters before config entry data is removed on unload
+
 ## [0.1.17] - 2026-06-15
 
 ### Added
