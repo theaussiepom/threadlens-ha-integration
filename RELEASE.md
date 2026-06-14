@@ -1,6 +1,6 @@
 # Release checklist — ThreadLens HACS Integration
 
-Version target: `0.1.0` (first HACS dashboard release; pre-1.0)
+Version target: `0.1.1` (dashboard incident view + node health; pre-1.0)
 
 ## Pre-release
 
@@ -9,7 +9,7 @@ Version target: `0.1.0` (first HACS dashboard release; pre-1.0)
 - [ ] `ruff check custom_components tests` passes
 - [ ] `ruff format --check custom_components tests` passes
 - [ ] `node --check custom_components/threadlens/panel/threadlens-panel.js` passes
-- [ ] `manifest.json` version is `0.1.0`
+- [ ] `manifest.json` version is `0.1.1`
 - [ ] `hacs.json` is valid
 - [ ] README explains dashboard panel and HACS install path
 - [ ] Secret audit clean (no private IPs, credentials, or hostnames)

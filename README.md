@@ -1,23 +1,39 @@
 # ThreadLens Home Assistant Integration
 
+<img src="icon.png" alt="ThreadLens" width="96" align="left" />
+
 HACS-compatible custom integration for [ThreadLens Core](https://github.com/theaussiepom/threadlens).
+
+<br clear="left" />
 
 This is the **Home Assistant / HACS integration** for ThreadLens. ThreadLens Core must already be
 running separately. This integration provides a **ThreadLens sidebar dashboard/panel** inside Home
 Assistant, powered by the ThreadLens REST API through the Home Assistant backend — not MQTT
 Discovery entities.
 
-**Status: early / pre-1.0** (version `0.1.0`). Behaviour and dashboard layout may change before 1.0.
+**Status: early / pre-1.0** (version `0.1.1`). Behaviour and dashboard layout may change before 1.0.
 
 ## What this integration does
 
 - Connects to a running ThreadLens Core REST API
 - Adds a **ThreadLens** sidebar panel with an out-of-the-box dashboard for Thread / Matter / OTBR /
   mDNS / TREL health — no manual Lovelace YAML or custom cards required
-- Aggregates `/api/v1` data in the backend and serves it to the panel over the authenticated Home
-  Assistant websocket (`threadlens/dashboard`), so the panel never talks to ThreadLens directly
+- Shows a **network incident summary** (OK / Watch / Incident) so you can tell at a glance whether a
+  Matter-over-Thread problem looks device-local or network-wide
+- Surfaces **at-a-glance Matter node health** (Unavailable / Recently unstable / Healthy / Unknown),
+  with click-through node detail showing recent events and a conservative assessment
+- Aggregates `/api/v1` data in the backend (including a bounded 24h event window) and serves it to the
+  panel over the authenticated Home Assistant websocket (`threadlens/dashboard`), so the panel never
+  talks to ThreadLens directly
+- Opens the ThreadLens YAML report in a new tab through an authenticated Home Assistant proxy
+  (`/api/threadlens/report.yaml`) — no CORS, mixed-content, or local-network auth issues
 - Exposes a small set of secondary helper sensors, binary sensors, and buttons for automations
 - Provides diagnostics for integration troubleshooting
+
+Foreign Thread/TREL services on your LAN (HomePods, Apple TVs, Nest, other fabrics) are treated as
+**informational** and do not, by themselves, make the dashboard look unhealthy. A reconciled OTBR REST
+endpoint mismatch (JSON:API disagrees with `/node` while an active Thread role is known) is likewise
+shown as a detail rather than a prominent warning. Raw reason codes remain available in diagnostics.
 
 The dashboard **does not depend on MQTT Discovery**. MQTT Discovery remains optional for normal Home
 Assistant entities and automations.

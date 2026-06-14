@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .coordinator import ThreadLensCoordinator, build_coordinator
 from .frontend import async_register_frontend, async_unregister_frontend
+from .report_view import async_register_http_views
 from .websocket import async_register_websocket_commands
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
@@ -29,6 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async_register_websocket_commands(hass)
+    async_register_http_views(hass)
     await async_register_frontend(hass)
     return True
 

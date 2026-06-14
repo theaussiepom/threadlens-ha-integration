@@ -141,9 +141,12 @@ def test_warning_reasons_are_friendly():
     assert payload["threadlens"]["overall_health"] == "warning"
     labels = {r["label"] for r in payload["threadlens"]["reasons"]}
     assert "mDNS service add/remove instability" in labels
-    assert "Other Thread/TREL services visible" in labels
+    # Foreign TREL alone is informational and must not be a prominent warning.
+    assert "Other Thread/TREL services visible" not in labels
     codes = {r["code"] for r in payload["threadlens"]["reasons"]}
     assert "mdns_service_flapping_degraded" in codes
+    all_codes = {r["code"] for r in payload["threadlens"]["reasons_all"]}
+    assert "foreign_trel_services_observed" in all_codes
 
 
 def test_otbr_endpoint_mismatch_reconciled_hides_prominent_warning():
@@ -196,8 +199,11 @@ def test_otbr_endpoint_mismatch_reconciled_hides_prominent_warning():
     prominent_codes = {r["code"] for r in payload["threadlens"]["reasons"]}
     all_codes = {r["code"] for r in payload["threadlens"]["reasons_all"]}
     assert "otbr_rest_endpoint_mismatch" not in prominent_codes
-    assert "foreign_trel_services_observed" in prominent_codes
+    # Foreign TREL is informational, so with only these two reasons no prominent
+    # warning remains.
+    assert "foreign_trel_services_observed" not in prominent_codes
     assert "otbr_rest_endpoint_mismatch" in all_codes
+    assert "foreign_trel_services_observed" in all_codes
 
     study = payload["otbrs"][0]
     assert study["mismatch_reconciled"] is True
@@ -319,6 +325,53 @@ def test_no_mqtt_dependency():
     assert payload["mqtt"] is None
     assert payload["threadlens"]["overall_health"] == "healthy"
     assert payload["mdns"]["service_count"] == 0
+
+
+def test_foreign_trel_alone_is_informational():
+    health = {
+        "overall": {"state": "warning", "reasons": ["foreign_trel_services_observed"]},
+        "environment": {"state": "warning", "reasons": ["foreign_trel_services_observed"]},
+        "trel": {"state": "warning", "reasons": ["foreign_trel_services_observed"]},
+    }
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=health,
+        trel_services=[{"service_id": f"t{i}", "is_foreign": True} for i in range(6)],
+        report_urls=REPORT_URLS,
+    )
+    trel = payload["trel"]
+    assert trel["health"] == "healthy"
+    assert trel["health_raw"] == "warning"
+    assert trel["informational"] is True
+    assert trel["foreign_service_count"] == 6
+    assert trel["reasons"] == []
+    assert any(r["code"] == "foreign_trel_services_observed" for r in trel["reasons_all"])
+    # With only informational reasons the overall display downgrades.
+    assert payload["threadlens"]["overall_health"] == "healthy"
+    assert payload["threadlens"]["overall_health_raw"] == "warning"
+
+
+def test_trel_real_instability_stays_warning():
+    health = {
+        "overall": {"state": "warning", "reasons": ["mdns_service_flapping_degraded"]},
+        "environment": {"state": "warning", "reasons": []},
+        "trel": {
+            "state": "warning",
+            "reasons": ["foreign_trel_services_observed", "mdns_service_flapping_degraded"],
+        },
+    }
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=health,
+        trel_services=[{"service_id": "t1", "is_foreign": True}],
+        report_urls=REPORT_URLS,
+    )
+    assert payload["trel"]["health"] == "warning"
+    assert payload["trel"]["informational"] is False
 
 
 def test_humanize_unknown_reason():

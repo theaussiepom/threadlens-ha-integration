@@ -40,9 +40,35 @@ function badge(state) {
   return `<span class="tl-badge ${healthClass(text)}">${esc(text)}</span>`;
 }
 
+const NODE_CLASS_META = {
+  unavailable: { label: "Unavailable", cls: "tl-critical" },
+  recently_unstable: { label: "Recently unstable", cls: "tl-warn" },
+  healthy: { label: "Healthy", cls: "tl-ok" },
+  unknown: { label: "Unknown", cls: "tl-unknown" },
+};
+
+function nodeBadge(classification) {
+  const meta = NODE_CLASS_META[classification] || NODE_CLASS_META.unknown;
+  return `<span class="tl-badge ${meta.cls}">${esc(meta.label)}</span>`;
+}
+
+const INCIDENT_META = {
+  ok: { label: "OK", cls: "tl-ok" },
+  watch: { label: "Watch", cls: "tl-warn" },
+  incident: { label: "Incident", cls: "tl-critical" },
+  unknown: { label: "Unknown", cls: "tl-unknown" },
+};
+
 function boolText(value, onText, offText) {
   if (value === null || value === undefined) return "—";
   return value ? onText : offText;
+}
+
+function fmtTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
 }
 
 class ThreadLensPanel extends HTMLElement {
@@ -56,6 +82,7 @@ class ThreadLensPanel extends HTMLElement {
     this._lastFetch = null;
     this._initialized = false;
     this._timer = null;
+    this._selectedNodeId = null;
   }
 
   set hass(hass) {
@@ -107,14 +134,54 @@ class ThreadLensPanel extends HTMLElement {
     const root = this.shadowRoot.querySelector(".tl-root");
     if (!root) return;
     root.innerHTML = this._content();
+
     const refresh = root.querySelector("#tl-refresh");
     if (refresh) refresh.addEventListener("click", () => this._fetch());
+
     const copy = root.querySelector("#tl-copy-report");
     if (copy) {
       copy.addEventListener("click", () => {
         const url = copy.getAttribute("data-url");
         if (url && navigator.clipboard) navigator.clipboard.writeText(url);
       });
+    }
+
+    const openReport = root.querySelector("#tl-open-report");
+    if (openReport) {
+      openReport.addEventListener("click", () =>
+        this._openReport(openReport.getAttribute("data-proxy"))
+      );
+    }
+
+    root.querySelectorAll("[data-node-id]").forEach((el) => {
+      el.addEventListener("click", () => {
+        this._selectedNodeId = el.getAttribute("data-node-id");
+        this._update();
+      });
+    });
+
+    const back = root.querySelector("#tl-node-back");
+    if (back) {
+      back.addEventListener("click", () => {
+        this._selectedNodeId = null;
+        this._update();
+      });
+    }
+  }
+
+  async _openReport(proxyUrl) {
+    if (!proxyUrl) return;
+    // Sign the path so the new tab carries Home Assistant auth without a token.
+    try {
+      const signed = await this._hass.callWS({
+        type: "auth/sign_path",
+        path: proxyUrl,
+        expires: 60,
+      });
+      const target = (signed && signed.path) || proxyUrl;
+      window.open(target, "_blank", "noopener");
+    } catch (err) {
+      window.open(proxyUrl, "_blank", "noopener");
     }
   }
 
@@ -129,7 +196,7 @@ class ThreadLensPanel extends HTMLElement {
     const header = `
       <div class="tl-header">
         <div class="tl-title">
-          <ha-icon icon="mdi:radar"></ha-icon>
+          <ha-icon icon="mdi:access-point-network"></ha-icon>
           <h1>ThreadLens</h1>
         </div>
         <div class="tl-header-meta">
@@ -159,16 +226,197 @@ class ThreadLensPanel extends HTMLElement {
       );
     }
 
+    const matter = d.matter || {};
+    if (this._selectedNodeId) {
+      const node = (matter.nodes || []).find(
+        (n) => String(n.node_id) === String(this._selectedNodeId)
+      );
+      if (node) {
+        return header + this._nodeDetailView(node, d);
+      }
+      this._selectedNodeId = null;
+    }
+
     return (
       header +
+      this._incidentCard(d) +
       this._overallCard(tl) +
       this._summaryCards(d) +
+      this._matterNodeHealth(matter) +
       this._otbrSection(d.otbrs || []) +
-      this._matterSection(d.matter || {}) +
+      this._matterSection(matter) +
       this._mdnsTrelSection(d.mdns || {}, d.trel || {}) +
       this._reportSection(d.report || {}) +
       this._diagnosticsSection(d)
     );
+  }
+
+  _incidentCard(d) {
+    const incident = d.incident || {};
+    const meta = INCIDENT_META[incident.state] || INCIDENT_META.unknown;
+    const affected = incident.affected_node_names || [];
+    const affectedLine = affected.length
+      ? `<p class="tl-info-text">Affected nodes: ${esc(affected.join(", "))}</p>`
+      : "";
+    return `
+      <div class="tl-card tl-incident tl-incident-${esc(incident.state || "unknown")}">
+        <div class="tl-incident-head">
+          <h2>Network incident summary</h2>
+          <span class="tl-badge ${meta.cls}">${esc(meta.label)}</span>
+        </div>
+        <p class="tl-incident-headline">${esc(incident.headline || "")}</p>
+        <p class="tl-info-text">${esc(incident.detail || "")}</p>
+        ${affectedLine}
+      </div>`;
+  }
+
+  _matterNodeHealth(matter) {
+    const nodes = matter.nodes || [];
+    if (!nodes.length) {
+      return `<div class="tl-card"><h2>Matter nodes</h2><p class="tl-muted">No Matter nodes reported.</p></div>`;
+    }
+    const groupsOrder = [
+      ["unavailable", "Needs attention"],
+      ["recently_unstable", "Recently unstable"],
+      ["unknown", "Unknown"],
+      ["healthy", "Healthy"],
+    ];
+    const grouped = {};
+    nodes.forEach((n) => {
+      (grouped[n.classification] = grouped[n.classification] || []).push(n);
+    });
+    const sections = groupsOrder
+      .filter(([key]) => (grouped[key] || []).length)
+      .map(([key, title]) => {
+        const rows = grouped[key]
+          .map((n) => this._nodeRow(n))
+          .join("");
+        return `<div class="tl-node-group"><div class="tl-node-group-title">${esc(title)} (${grouped[key].length})</div>${rows}</div>`;
+      })
+      .join("");
+    return `
+      <div class="tl-card">
+        <h2>Matter node health</h2>
+        <div class="tl-node-counts">
+          <span>${esc(matter.unavailable_count || 0)} unavailable</span>
+          <span>${esc(matter.unstable_count || 0)} unstable</span>
+          <span>${esc(matter.healthy_count || 0)} healthy</span>
+          <span>${esc(matter.unknown_count || 0)} unknown</span>
+        </div>
+        ${sections}
+        <p class="tl-muted tl-note">Click a node to inspect recent events and assessment.</p>
+      </div>`;
+  }
+
+  _nodeRow(n) {
+    const sub = [n.vendor, n.product].filter(Boolean).join(" · ");
+    const recent =
+      n.recent_unavailable_count || n.recent_recovered_count
+        ? `<span class="tl-muted">${esc(n.recent_unavailable_count || 0)} down / ${esc(n.recent_recovered_count || 0)} up (24h)</span>`
+        : "";
+    return `
+      <div class="tl-node-row" data-node-id="${esc(n.node_id)}" role="button" tabindex="0">
+        <div class="tl-node-row-main">
+          <strong>${esc(n.name)}</strong>
+          <span class="tl-muted">#${esc(n.node_id)}${sub ? " · " + esc(sub) : ""}</span>
+        </div>
+        <div class="tl-node-row-meta">
+          ${recent}
+          ${nodeBadge(n.classification)}
+        </div>
+      </div>`;
+  }
+
+  _nodeDetailView(node, d) {
+    const events = (d.events && d.events.items) || [];
+    const subjectId = node.subject_id;
+    const nodeEvents = events.filter((e) => e.subject_id === subjectId);
+    const detail = this._nodeAssessment(node, d);
+    const eventRows = nodeEvents.length
+      ? nodeEvents
+          .map(
+            (e) => `
+            <div class="tl-event-row">
+              <span class="tl-muted">${esc(fmtTime(e.timestamp))}</span>
+              <span>${esc(e.event_type)}</span>
+              <span class="tl-muted">${esc(e.severity || "")}</span>
+            </div>`
+          )
+          .join("")
+      : `<p class="tl-muted">No recent events for this node in the current window.</p>`;
+    const sub = [node.vendor, node.product].filter(Boolean).join(" · ");
+    return `
+      <div class="tl-card">
+        <div class="tl-subcard-head">
+          <button id="tl-node-back" class="tl-btn tl-btn-secondary">← Back</button>
+          ${nodeBadge(node.classification)}
+        </div>
+        <h2>${esc(node.name)} <span class="tl-muted">#${esc(node.node_id)}</span></h2>
+        ${sub ? `<p class="tl-muted">${esc(sub)}</p>` : ""}
+        <div class="tl-kv">
+          <span>Availability</span><span>${boolText(node.available, "Available", "Unavailable")}</span>
+          <span>Server</span><span>${esc(node.server_id || "—")}</span>
+          <span>Last seen</span><span>${esc(fmtTime(node.last_seen))}</span>
+          <span>Last unavailable</span><span>${esc(node.last_unavailable ? fmtTime(node.last_unavailable) : "—")}</span>
+          <span>Recent down / up (24h)</span><span>${esc(node.recent_unavailable_count || 0)} / ${esc(node.recent_recovered_count || 0)}</span>
+        </div>
+      </div>
+      <div class="tl-card">
+        <h2>What this suggests</h2>
+        <p class="tl-info-text">${esc(detail.assessment)}</p>
+      </div>
+      <div class="tl-card">
+        <h2>Recent events</h2>
+        ${eventRows}
+      </div>`;
+  }
+
+  _nodeAssessment(node, d) {
+    // Mirror the backend node-detail assessment using the payload already present.
+    const events = (d.events && d.events.items) || [];
+    const matter = d.matter || {};
+    const nodes = matter.nodes || [];
+    const thisUnstable =
+      (node.recent_unavailable_count || 0) || (node.recent_recovered_count || 0);
+    const otherUnstable = nodes.filter(
+      (n) =>
+        n.subject_id !== node.subject_id &&
+        ((n.recent_unavailable_count || 0) || (n.recent_recovered_count || 0))
+    );
+    const infraEvents = events.filter((e) =>
+      ["matter_server.disconnected", "otbr.unreachable", "thread_network.lost"].includes(
+        e.event_type
+      )
+    );
+    const nodeEvents = events.filter((e) => e.subject_id === node.subject_id);
+    if (!nodeEvents.length && !thisUnstable) {
+      return {
+        assessment:
+          "There is not enough recent event history to classify this as device-local or network-wide.",
+      };
+    }
+    if (otherUnstable.length) {
+      return {
+        assessment:
+          "Multiple Matter nodes changed state around the same time. This may indicate a wider Matter/Thread network issue.",
+      };
+    }
+    if (infraEvents.length) {
+      return {
+        assessment:
+          "Infrastructure events were observed near this node change. Review OTBR, Matter server, mDNS, and TREL sections.",
+      };
+    }
+    if (thisUnstable) {
+      return {
+        assessment:
+          "This looks isolated to this node. ThreadLens does not see a wider Matter/Thread infrastructure issue at the same time.",
+      };
+    }
+    return {
+      assessment:
+        "There is not enough recent event history to classify this as device-local or network-wide.",
+    };
   }
 
   _overallCard(tl) {
@@ -286,24 +534,14 @@ class ThreadLensPanel extends HTMLElement {
   }
 
   _matterSection(matter) {
-    const unavailable = matter.unavailable_nodes || [];
-    const list = unavailable.length
-      ? `<ul class="tl-list">${unavailable
-          .map(
-            (n) =>
-              `<li>${esc(n.friendly_name || "Node " + n.node_id)} <span class="tl-muted">(${esc(n.server_id)})</span></li>`
-          )
-          .join("")}</ul>`
-      : `<p class="tl-muted">All known nodes available.</p>`;
     return `
       <div class="tl-card">
-        <h2>Matter ${badge(matter.health)}</h2>
+        <h2>Matter servers ${badge(matter.health)}</h2>
         <div class="tl-kv">
           <span>Servers connected</span><span>${esc(matter.servers_connected || 0)} / ${esc(matter.servers || 0)}</span>
-          <span>Nodes</span><span>${esc(matter.node_count || 0)}</span>
-          <span>Unavailable</span><span>${esc(matter.unavailable_count || 0)}</span>
+          <span>Total nodes</span><span>${esc(matter.node_count || 0)}</span>
+          <span>Recent down / up (24h)</span><span>${esc(matter.recent_unavailable_count || 0)} / ${esc(matter.recent_recovered_count || 0)}</span>
         </div>
-        ${list}
       </div>`;
   }
 
@@ -311,6 +549,13 @@ class ThreadLensPanel extends HTMLElement {
     const types = (mdns.top_service_types || [])
       .map((t) => `<span class="tl-chip">${esc(t.service_type)} (${esc(t.count)})</span>`)
       .join("");
+    const foreignNote =
+      trel.foreign_service_count && trel.informational
+        ? `<div class="tl-info-banner">
+            <strong>Other Thread/TREL services visible: ${esc(trel.foreign_service_count)}</strong>
+            <p class="tl-info-text">This is common when HomePods, Apple TVs, Nest devices, or other Thread fabrics are on the LAN. ThreadLens does not treat this as a fault by itself.</p>
+          </div>`
+        : "";
     return `
       <div class="tl-card">
         <h2>mDNS / TREL</h2>
@@ -322,37 +567,47 @@ class ThreadLensPanel extends HTMLElement {
           <span>TREL services</span><span>${esc(trel.service_count || 0)}</span>
           <span>Foreign TREL</span><span>${esc(trel.foreign_service_count || 0)}</span>
         </div>
+        ${foreignNote}
         ${types ? `<div class="tl-chips">${types}</div>` : ""}
         <p class="tl-muted tl-note">TREL visibility is observation only and does not imply device parentage.</p>
       </div>`;
   }
 
   _reportSection(report) {
+    const proxy = report.report_proxy_url;
     const url = report.report_url;
-    if (!url) {
+    if (!proxy && !url) {
       return `<div class="tl-card"><h2>Report</h2><p class="tl-muted">Report URL unavailable.</p></div>`;
     }
     const generated = report.last_generated_at || "never";
+    const openBtn = proxy
+      ? `<button id="tl-open-report" class="tl-btn" data-proxy="${esc(proxy)}">Open report YAML</button>`
+      : "";
+    const copyBtn = url
+      ? `<button id="tl-copy-report" class="tl-btn tl-btn-secondary" data-url="${esc(url)}">Copy report URL</button>`
+      : "";
     return `
       <div class="tl-card">
         <h2>Report</h2>
         <p class="tl-muted">Last generated: ${esc(generated)}</p>
         <div class="tl-btn-row">
-          <a class="tl-btn" href="${esc(url)}" target="_blank" rel="noopener">Open report.yaml</a>
-          <button id="tl-copy-report" class="tl-btn" data-url="${esc(url)}">Copy report URL</button>
+          ${openBtn}
+          ${copyBtn}
         </div>
-        <p class="tl-muted tl-note">Reports redact secrets but include operational metadata.</p>
+        <p class="tl-muted tl-note">Opens the YAML report in a new tab via an authenticated Home Assistant proxy. Reports redact secrets but include operational metadata.</p>
       </div>`;
   }
 
   _diagnosticsSection(d) {
     const blocks = [
       ["Overall", d.threadlens],
+      ["Incident", d.incident],
       ["Matter", d.matter],
       ["mDNS", d.mdns],
       ["TREL", d.trel],
       ["OTBRs", d.otbrs],
       ["Networks", d.networks],
+      ["Events", d.events],
       ["MQTT", d.mqtt],
     ]
       .map(
@@ -497,6 +752,64 @@ class ThreadLensPanel extends HTMLElement {
       }
       .tl-kv-compact { margin-top: 8px; }
       .tl-list { margin: 8px 0 0; padding-left: 18px; }
+      .tl-incident-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .tl-incident-head h2 { margin: 0; }
+      .tl-incident-headline { font-size: 1rem; font-weight: 600; margin: 10px 0 0; }
+      .tl-incident { border-left: 4px solid var(--divider-color, #bdbdbd); }
+      .tl-incident-ok { border-left-color: var(--success-color, #43a047); }
+      .tl-incident-watch { border-left-color: var(--warning-color, #fb8c00); }
+      .tl-incident-incident { border-left-color: var(--error-color, #db4437); }
+      .tl-node-counts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin-bottom: 12px;
+        font-size: 0.85rem;
+        color: var(--secondary-text-color);
+      }
+      .tl-node-group { margin-bottom: 12px; }
+      .tl-node-group-title {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--secondary-text-color);
+        margin-bottom: 6px;
+      }
+      .tl-node-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 8px;
+        margin-bottom: 6px;
+        cursor: pointer;
+      }
+      .tl-node-row:hover { background: var(--secondary-background-color, #f5f5f5); }
+      .tl-node-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .tl-node-row-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+      .tl-event-row {
+        display: grid;
+        grid-template-columns: max-content 1fr max-content;
+        gap: 12px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--divider-color, #eeeeee);
+        font-size: 0.85rem;
+      }
+      .tl-info-banner {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: var(--secondary-background-color, #f5f5f5);
+        border: 1px solid var(--divider-color, #e0e0e0);
+      }
+      .tl-btn-secondary {
+        background: var(--secondary-background-color, #e0e0e0);
+        color: var(--primary-text-color, #212121);
+        border: 1px solid var(--divider-color, #bdbdbd);
+      }
       .tl-btn {
         appearance: none;
         border: 1px solid transparent;

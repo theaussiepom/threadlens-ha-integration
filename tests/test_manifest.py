@@ -14,10 +14,22 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["domain"] == "threadlens"
     assert manifest["name"] == "ThreadLens"
     assert manifest["config_flow"] is True
-    assert manifest["version"]
+    assert manifest["version"] == "0.1.1"
     assert manifest["integration_type"] == "hub"
     assert manifest["iot_class"] == "local_polling"
     assert "aiohttp" in manifest["requirements"][0]
+
+
+def test_hacs_branding_assets_exist() -> None:
+    assert (REPO_ROOT / "icon.png").is_file()
+    assert (REPO_ROOT / "logo.png").is_file()
+    assert (REPO_ROOT / "docs" / "threadlens-icon.svg").is_file()
+    assert (REPO_ROOT / "docs" / "threadlens-logo.svg").is_file()
+
+
+def test_sidebar_icon_is_access_point_network() -> None:
+    const = (INTEGRATION_DIR / "const.py").read_text(encoding="utf-8")
+    assert 'PANEL_ICON = "mdi:access-point-network"' in const
 
 
 def test_hacs_json_parses() -> None:

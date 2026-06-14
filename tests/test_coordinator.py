@@ -36,6 +36,7 @@ async def test_coordinator_returns_connected_data() -> None:
         "get_matter_nodes",
         "get_mdns_services",
         "get_trel_services",
+        "get_events",
     ):
         setattr(api_mock, getter, AsyncMock(return_value=[]))
     coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
@@ -56,6 +57,7 @@ async def test_coordinator_collects_dashboard_detail_endpoints() -> None:
     api_mock.get_matter_nodes = AsyncMock(return_value=[])
     api_mock.get_mdns_services = AsyncMock(return_value=[{"service_type": "_x._tcp"}])
     api_mock.get_trel_services = AsyncMock(return_value=[])
+    api_mock.get_events = AsyncMock(return_value=[])
     coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
     data = await coordinator._async_update_data()
     assert data.otbrs == [{"id": "o1", "name": "OTBR"}]
@@ -75,6 +77,7 @@ async def test_coordinator_detail_endpoint_failure_is_non_fatal() -> None:
     api_mock.get_matter_nodes = AsyncMock(return_value=[])
     api_mock.get_mdns_services = AsyncMock(return_value=[])
     api_mock.get_trel_services = AsyncMock(return_value=[])
+    api_mock.get_events = AsyncMock(return_value=[])
     coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
     data = await coordinator._async_update_data()
     assert data.connected is True
