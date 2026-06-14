@@ -11,7 +11,7 @@ running separately. This integration provides a **ThreadLens sidebar dashboard/p
 Assistant, powered by the ThreadLens REST API through the Home Assistant backend — not MQTT
 Discovery entities.
 
-**Status: early / pre-1.0** (version `0.1.2`). Behaviour and dashboard layout may change before 1.0.
+**Status: early / pre-1.0** (version `0.1.3`). Behaviour and dashboard layout may change before 1.0.
 
 ## What this integration does
 

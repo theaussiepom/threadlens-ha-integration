@@ -14,15 +14,19 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["domain"] == "threadlens"
     assert manifest["name"] == "ThreadLens"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.1.2"
+    assert manifest["version"] == "0.1.3"
     assert manifest["integration_type"] == "hub"
     assert manifest["iot_class"] == "local_polling"
     assert "aiohttp" in manifest["requirements"][0]
 
 
 def test_hacs_branding_assets_exist() -> None:
+    # Repo root icons are for GitHub/HACS listing; HA serves inline brand assets
+    # from custom_components/threadlens/brand/ (HA 2026.3+ brands proxy).
     assert (REPO_ROOT / "icon.png").is_file()
     assert (REPO_ROOT / "logo.png").is_file()
+    assert (INTEGRATION_DIR / "brand" / "icon.png").is_file()
+    assert (INTEGRATION_DIR / "brand" / "logo.png").is_file()
     assert (REPO_ROOT / "docs" / "threadlens-icon.svg").is_file()
     assert (REPO_ROOT / "docs" / "threadlens-logo.svg").is_file()
 
