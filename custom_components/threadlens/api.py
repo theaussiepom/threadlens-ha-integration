@@ -118,6 +118,24 @@ class ThreadLensApi:
     async def get_report_yaml(self) -> None:
         await self._request("GET", "/api/v1/report.yaml", expect_json=False)
 
+    async def get_report_yaml_text(self) -> str:
+        """Return the ThreadLens report YAML as text for the HA proxy view."""
+        url = self._url("/api/v1/report.yaml")
+        timeout = aiohttp.ClientTimeout(total=TIMEOUT_SECONDS)
+        try:
+            async with self._session.get(url, timeout=timeout) as response:
+                if response.status >= 400:
+                    raise ThreadLensInvalidResponse(
+                        f"HTTP {response.status} from /api/v1/report.yaml"
+                    )
+                return await response.text()
+        except aiohttp.ClientError as exc:
+            raise ThreadLensCannotConnect(str(exc)) from exc
+
+    async def get_events(self, *, window: str = "24h", limit: int = 100) -> list[dict[str, Any]]:
+        payload = await self._request("GET", f"/api/v1/events?window={window}&limit={limit}")
+        return _coerce_list(payload, "events", "Events")
+
     async def get_report_json(self) -> dict[str, Any]:
         payload = await self._request("GET", "/api/v1/report.json")
         if not isinstance(payload, dict):

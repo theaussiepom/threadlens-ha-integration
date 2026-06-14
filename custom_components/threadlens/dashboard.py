@@ -42,6 +42,47 @@ _ACTIVE_EFFECTIVE_STATES = frozenset(
 )
 _MISMATCH_ONLY_REASON = "otbr_rest_endpoint_mismatch"
 
+# Reasons that are informational background observations on their own and should
+# not, by themselves, make the dashboard look unhealthy. Raw codes remain in
+# diagnostics/reasons_all.
+_INFO_REASON_CODES = frozenset({"foreign_trel_services_observed"})
+
+# Event windowing for the node-health / incident view.
+DEFAULT_EVENT_WINDOW = "24h"
+MAX_EVENTS = 100
+
+_NODE_UNAVAILABLE_EVENT = "matter_node.unavailable"
+_NODE_RECOVERED_EVENT = "matter_node.recovered"
+_NODE_REMOVED_EVENT = "matter_node.removed"
+
+# Event types considered relevant for the incident/correlation view. Routine
+# "seen"/"changed"/"added" observations are excluded to keep the timeline useful.
+_RELEVANT_EVENT_TYPES = frozenset(
+    {
+        "matter_node.unavailable",
+        "matter_node.recovered",
+        "matter_node.removed",
+        "matter_server.connected",
+        "matter_server.disconnected",
+        "otbr.unreachable",
+        "otbr.reachable",
+        "otbr.role_changed",
+        "otbr.dataset_changed",
+        "thread_network.lost",
+        "mdns.service_removed",
+        "trel.service_removed",
+    }
+)
+
+_INFRA_EVENT_PREFIXES = ("matter_server.", "otbr.", "thread_network.", "mdns.", "trel.")
+_INFRA_DEGRADED_EVENTS = frozenset(
+    {
+        "matter_server.disconnected",
+        "otbr.unreachable",
+        "thread_network.lost",
+    }
+)
+
 
 def humanize_reason(code: str) -> str:
     """Return a friendly label for a reason code."""
@@ -136,12 +177,11 @@ def _all_mismatch_otbrs_reconciled(otbrs: list[dict[str, Any]]) -> bool:
 
 
 def _filter_prominent_reason_codes(codes: list[str], otbrs: list[dict[str, Any]]) -> list[str]:
-    """Hide reconciled endpoint mismatch from prominent dashboard chips."""
-    if _MISMATCH_ONLY_REASON not in codes:
-        return codes
-    if _all_mismatch_otbrs_reconciled(otbrs):
-        return [code for code in codes if code != _MISMATCH_ONLY_REASON]
-    return codes
+    """Hide reconciled mismatch and informational codes from prominent chips."""
+    filtered = [code for code in codes if code not in _INFO_REASON_CODES]
+    if _MISMATCH_ONLY_REASON in filtered and _all_mismatch_otbrs_reconciled(otbrs):
+        filtered = [code for code in filtered if code != _MISMATCH_ONLY_REASON]
+    return filtered
 
 
 def _combined_reasons_filtered(
@@ -246,30 +286,57 @@ def _matter_section(
     matter_servers: list[dict[str, Any]],
     matter_nodes: list[dict[str, Any]],
     health: dict[str, Any] | None,
+    events: list[dict[str, Any]],
 ) -> dict[str, Any]:
     servers_total = len(matter_servers)
     servers_connected = sum(1 for server in matter_servers if server.get("connected"))
-    unavailable_nodes = [
+
+    nodes = [_node_entry(node, events) for node in matter_nodes if isinstance(node, dict)]
+    nodes = _sort_nodes(nodes)
+
+    groups = {"unavailable": [], "recently_unstable": [], "unknown": [], "healthy": []}
+    for node in nodes:
+        groups.setdefault(node["classification"], []).append(node)
+
+    unavailable_nodes = groups["unavailable"]
+    recent_unavailable_count = sum(n.get("recent_unavailable_count", 0) for n in nodes)
+    recent_recovered_count = sum(n.get("recent_recovered_count", 0) for n in nodes)
+    affected_nodes = [
         {
-            "node_id": node.get("node_id"),
-            "server_id": node.get("server_id"),
-            "friendly_name": node.get("friendly_name"),
+            "node_id": n["node_id"],
+            "name": n["name"],
+            "unavailable_count": n.get("recent_unavailable_count", 0),
+            "recovered_count": n.get("recent_recovered_count", 0),
+            "last_event_at": n.get("last_event_at"),
         }
-        for node in matter_nodes
-        if node.get("available") is False
+        for n in nodes
+        if n.get("recent_unavailable_count") or n.get("recent_recovered_count")
     ]
+
     health_states: list[str] = []
     if isinstance(health, dict):
         for entry in health.get("matter_servers", []) or []:
             health_states.append(_state(entry))
         for entry in health.get("matter_nodes", []) or []:
             health_states.append(_state(entry))
+
     return {
         "servers": servers_total,
         "servers_connected": servers_connected,
         "node_count": len(matter_nodes),
         "unavailable_count": len(unavailable_nodes),
-        "unavailable_nodes": unavailable_nodes,
+        "unavailable_nodes": [
+            {"node_id": n["node_id"], "server_id": n["server_id"], "friendly_name": n["name"]}
+            for n in unavailable_nodes
+        ],
+        "unstable_count": len(groups["recently_unstable"]),
+        "healthy_count": len(groups["healthy"]),
+        "unknown_count": len(groups["unknown"]),
+        "recent_unavailable_count": recent_unavailable_count,
+        "recent_recovered_count": recent_recovered_count,
+        "affected_nodes_24h": affected_nodes,
+        "nodes": nodes,
+        "groups": groups,
         "health": _rollup(health_states) if health_states else "unknown",
     }
 
@@ -286,6 +353,286 @@ def _top_service_types(mdns_services: list[dict[str, Any]], limit: int = 5) -> l
     ]
 
 
+def _node_subject_id(node: dict[str, Any]) -> str | None:
+    server_id = node.get("server_id")
+    node_id = node.get("node_id")
+    if server_id is None or node_id is None:
+        return None
+    return f"matter_node:{server_id}:{node_id}"
+
+
+def _node_label(node: dict[str, Any]) -> str:
+    name = node.get("friendly_name") or node.get("name")
+    if name:
+        return str(name)
+    node_id = node.get("node_id")
+    return f"Node {node_id}" if node_id is not None else "Matter node"
+
+
+def _normalise_events(events: Any) -> list[dict[str, Any]]:
+    """Coerce the raw events list/object into a bounded list of event dicts."""
+    if isinstance(events, dict):
+        items = events.get("events") or events.get("items")
+    else:
+        items = events
+    if not isinstance(items, list):
+        return []
+    cleaned = [item for item in items if isinstance(item, dict)]
+    cleaned.sort(key=lambda e: str(e.get("timestamp") or ""), reverse=True)
+    return cleaned[:MAX_EVENTS]
+
+
+def _slim_event(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "timestamp": event.get("timestamp"),
+        "event_type": event.get("event_type"),
+        "severity": event.get("severity"),
+        "source": event.get("source_id") or event.get("source_type"),
+        "subject_id": event.get("subject_id"),
+        "subject_type": event.get("subject_type"),
+        "message": event.get("message"),
+    }
+
+
+def _events_for_subject(
+    events: list[dict[str, Any]], subject_id: str | None
+) -> list[dict[str, Any]]:
+    if not subject_id:
+        return []
+    return [event for event in events if event.get("subject_id") == subject_id]
+
+
+def classify_matter_node(node: dict[str, Any], node_events: list[dict[str, Any]]) -> str:
+    """Classify a Matter node as unavailable / recently_unstable / healthy / unknown."""
+    available = node.get("available")
+    recent_unavailable = sum(
+        1 for e in node_events if e.get("event_type") == _NODE_UNAVAILABLE_EVENT
+    )
+    recent_recovered = sum(1 for e in node_events if e.get("event_type") == _NODE_RECOVERED_EVENT)
+    flaps = node.get("availability_flaps_24h") or 0
+    flapping = isinstance(flaps, int) and flaps > 0
+    unstable = recent_unavailable > 0 or recent_recovered > 0 or flapping
+
+    if available is False:
+        return "unavailable"
+    if available is True and unstable:
+        return "recently_unstable"
+    if available is True:
+        return "healthy"
+    return "unknown"
+
+
+def _node_entry(node: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    subject_id = _node_subject_id(node)
+    node_events = _events_for_subject(events, subject_id)
+    recent_unavailable = sum(
+        1 for e in node_events if e.get("event_type") == _NODE_UNAVAILABLE_EVENT
+    )
+    recent_recovered = sum(1 for e in node_events if e.get("event_type") == _NODE_RECOVERED_EVENT)
+    last_event_at = node_events[0].get("timestamp") if node_events else None
+    classification = classify_matter_node(node, node_events)
+    return {
+        "node_id": node.get("node_id"),
+        "server_id": node.get("server_id"),
+        "subject_id": subject_id,
+        "name": _node_label(node),
+        "available": node.get("available"),
+        "classification": classification,
+        "vendor": node.get("vendor"),
+        "product": node.get("product"),
+        "firmware": node.get("firmware"),
+        "last_seen": node.get("last_seen"),
+        "last_unavailable": node.get("last_unavailable"),
+        "availability_flaps_24h": node.get("availability_flaps_24h"),
+        "recent_unavailable_count": recent_unavailable,
+        "recent_recovered_count": recent_recovered,
+        "last_event_at": last_event_at,
+    }
+
+
+_NODE_SORT_ORDER = {"unavailable": 0, "recently_unstable": 1, "unknown": 2, "healthy": 3}
+
+
+def _sort_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(node: dict[str, Any]) -> tuple[int, str]:
+        order = _NODE_SORT_ORDER.get(node.get("classification", "unknown"), 2)
+        label = str(node.get("name") or node.get("node_id") or "").lower()
+        return (order, label)
+
+    return sorted(nodes, key=key)
+
+
+def _infrastructure_unhealthy(
+    otbr_entries: list[dict[str, Any]],
+    matter_servers: list[dict[str, Any]],
+    mdns_health: str,
+    mdns_observation_degraded: Any,
+    trel_display_health: str,
+) -> bool:
+    """True when infra (not node-local) shows a real, non-informational problem."""
+    for otbr in otbr_entries:
+        if not otbr.get("reachable"):
+            return True
+        if not otbr.get("effective_state") and not otbr.get("mismatch_reconciled"):
+            return True
+    if matter_servers and not any(server.get("connected") for server in matter_servers):
+        return True
+    if mdns_observation_degraded:
+        return True
+    if _SEVERITY.get(mdns_health, 1) >= _SEVERITY["degraded"]:
+        return True
+    if _SEVERITY.get(trel_display_health, 1) >= _SEVERITY["degraded"]:
+        return True
+    return False
+
+
+def build_incident_summary(
+    *,
+    nodes: list[dict[str, Any]],
+    otbr_entries: list[dict[str, Any]],
+    matter_servers: list[dict[str, Any]],
+    mdns_health: str,
+    mdns_observation_degraded: Any,
+    trel_display_health: str,
+    has_events: bool,
+) -> dict[str, Any]:
+    """Compose a conservative incident assessment driven by node health + infra."""
+    unavailable = [n for n in nodes if n.get("classification") == "unavailable"]
+    unstable = [n for n in nodes if n.get("classification") == "recently_unstable"]
+    infra_unhealthy = _infrastructure_unhealthy(
+        otbr_entries,
+        matter_servers,
+        mdns_health,
+        mdns_observation_degraded,
+        trel_display_health,
+    )
+
+    if not nodes and not otbr_entries and not has_events:
+        return {
+            "state": "unknown",
+            "headline": "Not enough data to assess Matter-over-Thread health.",
+            "detail": "ThreadLens has not reported nodes or events yet.",
+            "affected_node_names": [],
+            "infrastructure_unhealthy": infra_unhealthy,
+        }
+
+    if unavailable or infra_unhealthy:
+        names = [n["name"] for n in unavailable]
+        if unavailable:
+            headline = f"{len(unavailable)} Matter node(s) currently unavailable."
+        else:
+            headline = "Infrastructure issue detected."
+        return {
+            "state": "incident",
+            "headline": headline,
+            "detail": (
+                "Matter nodes are currently unavailable. Compare affected nodes and "
+                "infrastructure events to narrow whether this is device-local or "
+                "network-wide."
+                if unavailable
+                else "An infrastructure component (OTBR, Matter server, mDNS, or TREL) "
+                "looks degraded. Review the relevant sections below."
+            ),
+            "affected_node_names": names,
+            "infrastructure_unhealthy": infra_unhealthy,
+        }
+
+    if unstable:
+        names = [n["name"] for n in unstable]
+        return {
+            "state": "watch",
+            "headline": f"{len(unstable)} Matter node(s) recently unstable: {', '.join(names)}.",
+            "detail": (
+                "No current outage, but recent changes were observed. Review affected "
+                "nodes if symptoms continue."
+            ),
+            "affected_node_names": names,
+            "infrastructure_unhealthy": infra_unhealthy,
+        }
+
+    if not nodes:
+        return {
+            "state": "unknown",
+            "headline": "No Matter nodes reported yet.",
+            "detail": "ThreadLens has not reported any Matter nodes.",
+            "affected_node_names": [],
+            "infrastructure_unhealthy": infra_unhealthy,
+        }
+
+    return {
+        "state": "ok",
+        "headline": "All Matter nodes are currently available.",
+        "detail": (
+            "No current Matter-over-Thread failure detected. OTBRs and Matter nodes "
+            "appear available, and no recent node instability was observed."
+        ),
+        "affected_node_names": [],
+        "infrastructure_unhealthy": infra_unhealthy,
+    }
+
+
+def build_node_detail(
+    *,
+    node: dict[str, Any],
+    all_nodes: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a node detail payload with recent events and a conservative assessment."""
+    subject_id = node.get("subject_id")
+    node_events = _events_for_subject(events, subject_id)
+    this_unstable = node.get("recent_unavailable_count", 0) or node.get("recent_recovered_count", 0)
+
+    other_unstable = [
+        n
+        for n in all_nodes
+        if n.get("subject_id") != subject_id
+        and (n.get("recent_unavailable_count") or n.get("recent_recovered_count"))
+    ]
+    infra_events = [
+        e
+        for e in events
+        if isinstance(e.get("event_type"), str) and e["event_type"] in _INFRA_DEGRADED_EVENTS
+    ]
+
+    if not node_events and not this_unstable:
+        assessment_kind = "insufficient"
+        assessment = (
+            "There is not enough recent event history to classify this as "
+            "device-local or network-wide."
+        )
+    elif other_unstable:
+        assessment_kind = "group"
+        assessment = (
+            "Multiple Matter nodes changed state around the same time. This may "
+            "indicate a wider Matter/Thread network issue."
+        )
+    elif infra_events:
+        assessment_kind = "infrastructure"
+        assessment = (
+            "Infrastructure events were observed near this node change. Review OTBR, "
+            "Matter server, mDNS, and TREL sections."
+        )
+    elif this_unstable:
+        assessment_kind = "individual"
+        assessment = (
+            "This looks isolated to this node. ThreadLens does not see a wider "
+            "Matter/Thread infrastructure issue at the same time."
+        )
+    else:
+        assessment_kind = "insufficient"
+        assessment = (
+            "There is not enough recent event history to classify this as "
+            "device-local or network-wide."
+        )
+
+    return {
+        "node": node,
+        "events": [_slim_event(e) for e in node_events],
+        "assessment_kind": assessment_kind,
+        "assessment": assessment,
+    }
+
+
 def build_dashboard_payload(
     *,
     connected: bool,
@@ -299,6 +646,8 @@ def build_dashboard_payload(
     matter_nodes: list[dict[str, Any]] | None = None,
     mdns_services: list[dict[str, Any]] | None = None,
     trel_services: list[dict[str, Any]] | None = None,
+    events: Any = None,
+    event_window: str = DEFAULT_EVENT_WINDOW,
     report_urls: dict[str, str] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
@@ -310,6 +659,8 @@ def build_dashboard_payload(
     mdns_services = mdns_services or []
     trel_services = trel_services or []
     report_urls = report_urls or {}
+    event_list = _normalise_events(events)
+    relevant_events = [e for e in event_list if e.get("event_type") in _RELEVANT_EVENT_TYPES]
 
     version_str = version.get("version") if isinstance(version, dict) else None
 
@@ -340,6 +691,41 @@ def build_dashboard_payload(
     otbr_entries = [_otbr_entry(item) for item in otbrs if isinstance(item, dict)]
     prominent_reasons, all_reasons = _combined_reasons_filtered(otbrs, overall, environment)
 
+    # Dashboard-facing health downgrades a raw "warning" to "healthy" only when no
+    # prominent reasons remain (i.e. only informational/reconciled observations).
+    overall_raw = _state(overall) if connected else "unknown"
+    environment_raw = _state(environment) if connected else "unknown"
+    overall_display = overall_raw
+    environment_display = environment_raw
+    if connected and not prominent_reasons:
+        if overall_raw == "warning":
+            overall_display = "healthy"
+        if environment_raw == "warning":
+            environment_display = "healthy"
+
+    # TREL: foreign services alone are informational. Only show warning/degraded
+    # when a non-informational reason is present.
+    trel_state = _state(trel_health)
+    trel_reason_codes = _reasons(trel_health)
+    trel_real_reasons = [c for c in trel_reason_codes if c not in _INFO_REASON_CODES]
+    trel_display_health = trel_state
+    if not trel_real_reasons and trel_state == "warning":
+        trel_display_health = "healthy"
+
+    matter_section = _matter_section(matter_servers, matter_nodes, health, relevant_events)
+    mdns_state = _state(mdns_health)
+    mdns_observation_degraded = mdns_collector.get("observation_degraded")
+
+    incident = build_incident_summary(
+        nodes=matter_section["nodes"],
+        otbr_entries=otbr_entries,
+        matter_servers=matter_servers,
+        mdns_health=mdns_state,
+        mdns_observation_degraded=mdns_observation_degraded,
+        trel_display_health=trel_display_health,
+        has_events=bool(relevant_events),
+    )
+
     mqtt_payload: dict[str, Any] | None = None
     if mqtt_status is not None:
         mqtt_payload = {
@@ -355,32 +741,43 @@ def build_dashboard_payload(
             "version": version_str,
             "api_connected": bool(connected),
             "last_update": last_update,
-            "overall_health": _state(overall) if connected else "unknown",
-            "environment_health": _state(environment) if connected else "unknown",
+            "overall_health": overall_display,
+            "environment_health": environment_display,
+            "overall_health_raw": overall_raw,
+            "environment_health_raw": environment_raw,
             "reasons": prominent_reasons,
             "reasons_all": all_reasons,
         },
+        "incident": incident,
         "otbrs": otbr_entries,
         "networks": [
             _network_entry(item, health_by_pan) for item in networks if isinstance(item, dict)
         ],
-        "matter": _matter_section(matter_servers, matter_nodes, health),
+        "matter": matter_section,
         "mdns": {
-            "health": _state(mdns_health),
+            "health": mdns_state,
             "service_count": len(mdns_services),
-            "observation_degraded": mdns_collector.get("observation_degraded"),
+            "observation_degraded": mdns_observation_degraded,
             "top_service_types": _top_service_types(mdns_services),
         },
         "trel": {
-            "health": _state(trel_health),
+            "health": trel_display_health,
+            "health_raw": trel_state,
+            "informational": bool(foreign_trel) and not trel_real_reasons,
             "service_count": len(trel_services),
             "foreign_service_count": foreign_trel,
-            "reasons": friendly_reasons(_reasons(trel_health)),
+            "reasons": friendly_reasons(trel_real_reasons),
+            "reasons_all": friendly_reasons(trel_reason_codes),
+        },
+        "events": {
+            "window": event_window,
+            "items": [_slim_event(e) for e in relevant_events],
         },
         "mqtt": mqtt_payload,
         "report": {
             "report_url": report_urls.get("yaml"),
             "report_url_json": report_urls.get("json"),
+            "report_proxy_url": report_urls.get("proxy"),
             "last_generated_at": last_generated_at,
         },
         "error": error,

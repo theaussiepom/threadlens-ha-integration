@@ -48,3 +48,20 @@ def test_manifest_declares_panel_dependencies():
     manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text(encoding="utf-8"))
     for dependency in ("http", "websocket_api", "frontend", "panel_custom"):
         assert dependency in manifest["dependencies"], f"Missing dependency: {dependency}"
+
+
+def test_panel_opens_report_via_signed_proxy_in_new_tab():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "auth/sign_path" in contents, "Report YAML must open via an authenticated signed path"
+    assert "report_proxy_url" in contents
+    assert "window.open(" in contents
+    assert '"_blank"' in contents
+
+
+def test_panel_has_node_health_and_incident_view():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "Network incident summary" in contents
+    assert "Matter node health" in contents
+    assert "data-node-id" in contents
+    assert "What this suggests" in contents
+    assert "mdi:access-point-network" in contents

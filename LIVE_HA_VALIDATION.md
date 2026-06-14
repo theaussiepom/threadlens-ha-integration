@@ -1,9 +1,9 @@
 # Live Home Assistant Validation Checklist
 
-Manual validation for the ThreadLens HACS integration (version `0.1.0`).
+Manual validation for the ThreadLens HACS integration (version `0.1.1`).
 
 This checklist is for **Ben to run in Home Assistant**. It is intentionally out of scope for
-automated CI. Do not tag `v0.1.0` until this validation passes.
+automated CI. Do not tag `v0.1.1` until this validation passes.
 
 ThreadLens Core endpoint (Study Pi):
 
@@ -91,7 +91,7 @@ Check that secondary helper entities load (useful for automations, not required 
 
 ## 4. Open the ThreadLens sidebar panel
 
-1. Look for **ThreadLens** in the Home Assistant left sidebar (icon: `mdi:radar`).
+1. Look for **ThreadLens** in the Home Assistant left sidebar (icon: `mdi:access-point-network`).
 2. Click to open the panel.
 
 ### Expected
@@ -113,29 +113,32 @@ The panel fetches data from Home Assistant via websocket command `threadlens/das
 |------|----------|
 | ThreadLens Core version | `0.1.2` |
 | API connected | Yes |
-| Overall health | `warning` |
-| Environment health | `warning` |
-| Prominent reason: `foreign_trel_services_observed` | Visible (friendly label: "Other Thread/TREL services visible") |
+| Incident summary | **OK** ("All Matter nodes are currently available…") |
+| Overall health | `healthy` (display downgrades from raw `warning` when only informational/reconciled reasons remain) |
+| Environment health | `healthy` (raw `warning` preserved under Diagnostics → `overall_health_raw`) |
+| `foreign_trel_services_observed` | **Not** a prominent warning; shown as informational note in mDNS/TREL section; raw code under Diagnostics |
 | `otbr_rest_endpoint_mismatch` | **Not** in prominent chips when reconciled; available under Diagnostics / "All reason codes" |
 | OTBR Study | Effective state `leader`, source `/node`, health badge `healthy`, no scary mismatch banner |
 | OTBR Lounge | Effective state `router`, source `/node`, health badge `healthy`, no scary mismatch banner |
 | OTBR endpoint details | Expand **Endpoint details** on each OTBR for informational mismatch text |
-| Matter nodes | 12 |
-| Matter unavailable | 0 |
+| Matter node health | 12 nodes, all **Healthy** group; 0 unavailable, 0 unstable |
+| Matter nodes clickable | Click a node → in-panel detail view with current state, recent events, "What this suggests" |
 | mDNS services | ~30 |
-| TREL services | ~8 (foreign ~6) |
+| TREL services | ~8 (foreign ~6), shown with "ThreadLens does not treat this as a fault by itself" note |
 | MQTT publishing | Connected (if surfaced in summary card) |
 
 ### Dashboard sections to verify
 
-- [ ] Header shows version, connected state, last refresh
-- [ ] Overall health card with reason chips
+- [ ] Header shows version, connected state, last refresh (icon `mdi:access-point-network`)
+- [ ] **Network incident summary** card (OK / Watch / Incident badge + headline)
+- [ ] Overall health card with reason chips (no foreign-TREL / reconciled-mismatch chips)
 - [ ] Summary cards (OTBRs, networks, Matter, mDNS, TREL, MQTT)
+- [ ] **Matter node health** section with grouped, sorted, clickable node rows + health badges
+- [ ] Click a node → node detail view (header, current state, recent events, assessment, **Back**)
 - [ ] OTBR section with Study/Lounge details
-- [ ] Matter section
-- [ ] mDNS / TREL section
-- [ ] Report section (open/copy report URL)
-- [ ] Diagnostics expandable JSON sections
+- [ ] mDNS / TREL section with informational foreign-TREL note
+- [ ] Report section: **Open report YAML** opens a new browser tab showing YAML text (no download, no CORS)
+- [ ] Diagnostics expandable JSON sections (incident, events, reasons_all all present)
 
 Press **Refresh** and confirm data updates.
 
@@ -173,19 +176,21 @@ If the panel looks wrong:
 
 ## 8. What to report back
 
-Please report the following so we can decide whether to tag `v0.1.0`:
+Please report the following so we can decide whether to tag `v0.1.1`:
 
 | # | Question | Answer |
 |---|----------|--------|
-| 1 | HACS install success/failure? | |
-| 2 | Config flow success/failure? | |
+| 1 | HACS update to 0.1.1 success/failure? | |
+| 2 | Config flow still works? | |
 | 3 | Sidebar panel visible? (yes/no) | |
 | 4 | Panel loads? (yes/no) | |
-| 5 | Dashboard shows live data? (yes/no) | |
-| 6 | Any HA log errors? (paste redacted excerpt) | |
-| 7 | Any browser console errors? | |
-| 8 | Screenshot (if possible) | |
-| 9 | Helper entities load? (yes/no) | |
+| 5 | Incident summary shows OK? (yes/no) | |
+| 6 | Matter node health at-a-glance correct? (yes/no) | |
+| 7 | Node click → detail view works? (yes/no) | |
+| 8 | "Open report YAML" opens YAML in a new tab? (yes/no) | |
+| 9 | Foreign TREL / OTBR mismatch no longer scary? (yes/no) | |
+| 10 | Any HA log / browser console errors? (paste redacted excerpt) | |
+| 11 | Screenshot (if possible) | |
 
 ---
 
@@ -193,8 +198,8 @@ Please report the following so we can decide whether to tag `v0.1.0`:
 
 Once all checks pass:
 
-1. Confirm readiness to tag `v0.1.0` on `main`.
-2. Proceed with **HACS Pass 3B** follow-up (tag, release notes, any fixes from validation).
+1. Confirm readiness to tag `v0.1.1` on `main`.
+2. Proceed with the release follow-up (tag, release notes, any fixes from validation).
 
 If validation fails, note the failure category:
 

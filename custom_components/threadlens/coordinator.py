@@ -16,7 +16,14 @@ from .api import (
     ThreadLensCannotConnect,
     build_report_urls,
 )
-from .const import CONF_URL, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_URL,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    EVENT_LIMIT,
+    EVENT_WINDOW,
+    REPORT_PROXY_URL,
+)
 from .dashboard import build_dashboard_payload, build_disconnected_payload
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,6 +44,7 @@ class ThreadLensCoordinatorData:
     matter_nodes: list[dict[str, Any]] = field(default_factory=list)
     mdns_services: list[dict[str, Any]] = field(default_factory=list)
     trel_services: list[dict[str, Any]] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
@@ -69,6 +77,7 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
         matter_nodes = await self._safe_list(self.api.get_matter_nodes, "matter-nodes")
         mdns_services = await self._safe_list(self.api.get_mdns_services, "mdns")
         trel_services = await self._safe_list(self.api.get_trel_services, "trel")
+        events = await self._safe_events()
 
         return ThreadLensCoordinatorData(
             connected=True,
@@ -82,7 +91,15 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
             matter_nodes=matter_nodes,
             mdns_services=mdns_services,
             trel_services=trel_services,
+            events=events,
         )
+
+    async def _safe_events(self) -> list[dict[str, Any]]:
+        try:
+            return await self.api.get_events(window=EVENT_WINDOW, limit=EVENT_LIMIT)
+        except ThreadLensApiError as exc:
+            _LOGGER.debug("ThreadLens events endpoint unavailable: %s", exc)
+            return []
 
     async def _safe_list(self, getter, label: str) -> list[dict[str, Any]]:
         try:
@@ -94,6 +111,7 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
     def dashboard_payload(self) -> dict[str, Any]:
         """Build the aggregated dashboard payload for the frontend panel."""
         report_urls = build_report_urls(self.api.base_url)
+        report_urls["proxy"] = REPORT_PROXY_URL
         data = self.data
         if data is None or not data.connected:
             return build_disconnected_payload(
@@ -113,6 +131,8 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
             matter_nodes=data.matter_nodes,
             mdns_services=data.mdns_services,
             trel_services=data.trel_services,
+            events=data.events,
+            event_window=EVENT_WINDOW,
             report_urls=report_urls,
         )
 
