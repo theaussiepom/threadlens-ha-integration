@@ -94,5 +94,47 @@ def test_coordinator_dashboard_payload_disconnected() -> None:
     assert payload["report"]["report_url"].endswith("/api/v1/report.yaml")
 
 
+def test_coordinator_dashboard_payload_survives_ha_lookup_failure(monkeypatch) -> None:
+    api_mock = MagicMock()
+    api_mock.base_url = "http://tl:8128"
+    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator.data = coordinator_mod.ThreadLensCoordinatorData(
+        connected=True,
+        version={"tool": "ThreadLens", "version": "0.1.2"},
+        health={"overall": {"state": "healthy", "reasons": []}},
+        status={"collectors": {}},
+        last_update="2026-06-14T12:00:00+00:00",
+        matter_nodes=[{"node_id": 1, "available": True}],
+    )
+
+    def _boom(_hass):
+        raise RuntimeError("registry unavailable")
+
+    monkeypatch.setattr(coordinator_mod, "build_matter_node_ha_lookup", _boom)
+    payload = coordinator.dashboard_payload()
+    assert payload["threadlens"]["api_connected"] is True
+    assert payload["matter"]["nodes"][0]["node_id"] == 1
+
+
+def test_coordinator_dashboard_payload_survives_dashboard_build_failure(monkeypatch) -> None:
+    api_mock = MagicMock()
+    api_mock.base_url = "http://tl:8128"
+    coordinator = ThreadLensCoordinator(MagicMock(), api_mock)
+    coordinator.data = coordinator_mod.ThreadLensCoordinatorData(
+        connected=True,
+        version={"tool": "ThreadLens", "version": "0.1.2"},
+        health={"overall": {"state": "healthy", "reasons": []}},
+        status={"collectors": {}},
+    )
+
+    def _boom(**_kwargs):
+        raise ValueError("bad payload")
+
+    monkeypatch.setattr(coordinator_mod, "build_dashboard_payload", _boom)
+    payload = coordinator.dashboard_payload()
+    assert payload["threadlens"]["api_connected"] is False
+    assert "failed to build" in payload["error"]
+
+
 def test_diagnostics_redacts_url_query_strings() -> None:
     assert "secret" not in api.redact_url_for_diagnostics("http://x:8128/?q=secret")

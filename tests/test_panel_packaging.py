@@ -67,3 +67,10 @@ def test_panel_has_node_health_and_incident_view():
     assert "mdi:access-point-network" in contents
     assert "View" in contents
     assert "hard-refresh" in contents
+
+
+def test_panel_shows_actionable_errors_instead_of_endless_loading():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "ThreadLens panel unavailable" in contents
+    assert "ThreadLens API unavailable" in contents
+    assert "Invalid ThreadLens dashboard response" in contents
