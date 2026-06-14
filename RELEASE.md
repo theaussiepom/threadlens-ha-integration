@@ -1,6 +1,6 @@
 # Release checklist — ThreadLens HACS Integration
 
-Version target: `0.1.14` (HACS-ready hardening; pre-1.0)
+Version target: `0.1.15` (screenshots + post-0.1.14 polish; pre-1.0)
 
 ## Pre-release
 
@@ -11,7 +11,7 @@ Version target: `0.1.14` (HACS-ready hardening; pre-1.0)
 - [ ] `node --check custom_components/threadlens/panel/threadlens-panel.js` passes
 - [ ] HACS Action workflow passes
 - [ ] Hassfest workflow passes
-- [ ] `manifest.json` version is `0.1.14`
+- [ ] `manifest.json` version is `0.1.15`
 - [ ] `hacs.json` is valid
 - [ ] README explains native companion panel, optional iframe, Core, and HAOS paths
 - [ ] Secret audit clean (no private IPs, credentials, or hostnames in repo)

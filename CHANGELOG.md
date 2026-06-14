@@ -2,7 +2,12 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
-## [0.1.14] - Unreleased
+## [0.1.15] - Unreleased
+
+### Added
+- README screenshots (config flow, device page, companion panel, Core dashboard, node detail)
+
+## [0.1.14] - 2026-06-14
 
 ### Added
 - HACS Action validation workflow

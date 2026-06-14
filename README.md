@@ -11,7 +11,7 @@ running separately. This integration provides a **native companion/status sideba
 entities, diagnostics, repairs, and access to the canonical Core dashboard — not a replacement for
 Core or MQTT Discovery entities.
 
-**Status: pre-1.0 / HACS-ready** (version `0.1.14`). Behaviour may change before 1.0.
+**Status: pre-1.0 / HACS-ready** (version `0.1.15`). Behaviour may change before 1.0.
 
 ## Install paths
 
