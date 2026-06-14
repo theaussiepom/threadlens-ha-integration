@@ -11,7 +11,7 @@ running separately. This integration provides a **ThreadLens sidebar dashboard/p
 Assistant, powered by the ThreadLens REST API through the Home Assistant backend — not MQTT
 Discovery entities.
 
-**Status: early / pre-1.0** (version `0.1.1`). Behaviour and dashboard layout may change before 1.0.
+**Status: early / pre-1.0** (version `0.1.2`). Behaviour and dashboard layout may change before 1.0.
 
 ## What this integration does
 
@@ -93,21 +93,41 @@ Validation calls:
 ## Where to find the dashboard
 
 After adding the integration, look for **ThreadLens** in the Home Assistant left sidebar (icon
-`mdi:radar`). The panel registers on setup — a restart is only required after the initial HACS
-install. The panel fetches data from Home Assistant, which polls ThreadLens Core every 60 seconds;
-use the **Refresh** button for an immediate update.
+`mdi:access-point-network`). The panel registers on setup — a restart is only required after the
+initial HACS install. The panel fetches data from Home Assistant, which polls ThreadLens Core every
+60 seconds; use the **Refresh** button for an immediate update.
+
+### After a HACS update
+
+Home Assistant may keep an old copy of the panel JavaScript in your browser cache. If the dashboard
+looks unchanged after updating ThreadLens in HACS (for example, you still see the old Matter section
+instead of **Matter node health**), do all of the following:
+
+1. Confirm HACS installed the new version (`manifest.json` should show the updated version under
+   `/config/custom_components/threadlens/`)
+2. **Restart Home Assistant**
+3. **Hard-refresh your browser** on the ThreadLens panel page:
+   - macOS: **Cmd+Shift+R**
+   - Windows/Linux: **Ctrl+Shift+R**
+4. If needed, open the panel in a private/incognito window to bypass cache entirely
+
+The panel header also reminds you to hard-refresh after HACS updates.
 
 ## The ThreadLens dashboard
 
 The dashboard shows:
 
-- **Header** — API connected/disconnected state, ThreadLens version, last refresh, refresh button
+- **Header** — API connected/disconnected state, ThreadLens Core version, last refresh, refresh button
+- **Network incident summary** — OK / Watch / Incident assessment
 - **Overall health** — overall and environment state with friendly reason chips
 - **Summary cards** — OTBRs, Thread networks, Matter nodes, mDNS services, TREL services, MQTT
-- **OTBR section** — per-OTBR reachability, thread state, role, network, RLOC16, health, state source
-- **Matter section** — server connectivity, node count, unavailable nodes
-- **mDNS / TREL section** — service counts, foreign TREL, observation-degraded state
-- **Report section** — open or copy the ThreadLens `report.yaml` URL
+- **Matter node health** — grouped, sorted, clickable node rows with health badges. Node names prefer
+  your **Home Assistant Matter device/entity names** (e.g. blind names) when ThreadLens can match
+  them; Matter serials remain visible as secondary detail.
+- **OTBR section** — per-OTBR reachability, effective state, network, reconciled mismatch details
+- **Matter servers** — server connectivity summary
+- **mDNS / TREL section** — service counts, foreign TREL (informational), observation-degraded state
+- **Report section** — open YAML via authenticated HA proxy, or copy the Core report URL
 - **Diagnostics** — expandable raw JSON summaries
 
 ### Expected warnings

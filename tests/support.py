@@ -12,8 +12,11 @@ INTEGRATION_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "t
 
 def install_homeassistant_stubs() -> None:
     """Install minimal Home Assistant module stubs for coordinator tests."""
-    if "homeassistant.helpers.update_coordinator" in sys.modules:
+    if "homeassistant.helpers.device_registry" in sys.modules:
         return
+
+    def callback(func):
+        return func
 
     class UpdateFailed(Exception):
         pass
@@ -26,20 +29,37 @@ def install_homeassistant_stubs() -> None:
         def __class_getitem__(cls, _item):
             return cls
 
+    class DeviceEntry:
+        pass
+
+    class RegistryEntry:
+        pass
+
     ha = ModuleType("homeassistant")
     core = ModuleType("homeassistant.core")
     core.HomeAssistant = object
+    core.callback = callback
     helpers = ModuleType("homeassistant.helpers")
     update_coordinator = ModuleType("homeassistant.helpers.update_coordinator")
     update_coordinator.UpdateFailed = UpdateFailed
     update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
+    device_registry = ModuleType("homeassistant.helpers.device_registry")
+    device_registry.DeviceEntry = DeviceEntry
+    device_registry.async_get = lambda _hass: None
+    entity_registry = ModuleType("homeassistant.helpers.entity_registry")
+    entity_registry.RegistryEntry = RegistryEntry
+    entity_registry.async_get = lambda _hass: None
     helpers.update_coordinator = update_coordinator
+    helpers.device_registry = device_registry
+    helpers.entity_registry = entity_registry
     ha.core = core
     ha.helpers = helpers
     sys.modules["homeassistant"] = ha
     sys.modules["homeassistant.core"] = core
     sys.modules["homeassistant.helpers"] = helpers
     sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
+    sys.modules["homeassistant.helpers.device_registry"] = device_registry
+    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
 
 
 def _ensure_threadlens_package() -> ModuleType:
