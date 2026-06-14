@@ -64,3 +64,38 @@ def test_panel_summary_connected_counts() -> None:
     assert summary["mdns_observer_running"] is True
     assert len(summary["networks"]) == 1
     assert summary["networks"][0]["name"] == "Home"
+
+
+def test_panel_summary_read_probe_diagnostics() -> None:
+    data = _FakeData(
+        matter_nodes=[
+            {
+                "node_id": 1,
+                "friendly_name": "Living Blind",
+                "available": True,
+                "read_probe_diagnostics_available": True,
+                "last_read_probe_ok": False,
+                "read_probe_failures_24h": 2,
+            },
+            {
+                "node_id": 2,
+                "available": True,
+                "read_probe_diagnostics_available": False,
+            },
+        ]
+    )
+    summary = build_panel_summary(data, core_url="http://core:8128", connected=True)
+    assert summary["read_probe_diagnostics_available"] is True
+    assert summary["matter_read_probe_issues"] == 1
+    assert summary["matter_read_probe_available_but_failed"] == 1
+    assert len(summary["read_probe_issue_nodes"]) == 1
+    detail = summary["read_probe_issue_nodes"][0]["detail"]
+    assert "safe read probes failed" in detail.lower()
+    assert "command" not in detail.lower()
+
+
+def test_panel_summary_read_probe_unavailable_when_no_diagnostics() -> None:
+    data = _FakeData(matter_nodes=[{"node_id": 1, "available": True}])
+    summary = build_panel_summary(data, core_url="http://core:8128", connected=True)
+    assert summary["read_probe_diagnostics_available"] is False
+    assert summary["matter_read_probe_issues"] == 0

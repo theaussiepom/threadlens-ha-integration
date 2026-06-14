@@ -56,6 +56,9 @@
       },
       "warning_count_24h": {
         "name": "Warning count (24h)"
+      },
+      "matter_read_probe_issues": {
+        "name": "Matter read probe issues"
       }
     },
     "binary_sensor": {
@@ -67,6 +70,9 @@
       },
       "mdns_observer_running": {
         "name": "mDNS observer running"
+      },
+      "matter_read_probe_issues_present": {
+        "name": "Matter read probe issues present"
       }
     },
     "button": {

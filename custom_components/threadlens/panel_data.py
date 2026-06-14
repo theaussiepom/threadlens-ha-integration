@@ -35,7 +35,79 @@ def _matter_unavailable_count(nodes: list[dict[str, Any]]) -> int:
         state = str(node.get("state") or node.get("availability") or "").lower()
         if state in {"unavailable", "offline"}:
             count += 1
+        elif node.get("available") is False:
+            count += 1
     return count
+
+
+def _node_available(node: dict[str, Any]) -> bool:
+    if node.get("available") is True:
+        return True
+    state = str(node.get("state") or node.get("availability") or "").lower()
+    return state == "available"
+
+
+def _read_probe_issue(node: dict[str, Any]) -> bool:
+    if not node.get("read_probe_diagnostics_available"):
+        return False
+    if node.get("last_read_probe_limited"):
+        return False
+    if node.get("last_read_probe_ok") is False:
+        return True
+    failures = node.get("read_probe_failures_24h")
+    return isinstance(failures, int) and failures >= 1
+
+
+def summarize_matter_read_probes(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate read probe diagnostics from Core matter node payloads."""
+    diagnostics_nodes = [
+        node
+        for node in nodes
+        if isinstance(node, dict) and node.get("read_probe_diagnostics_available")
+    ]
+    issues = [node for node in diagnostics_nodes if _read_probe_issue(node)]
+    available_failed = [node for node in issues if _node_available(node)]
+    ping_nodes = [
+        node for node in nodes if isinstance(node, dict) and node.get("ping_diagnostics_available")
+    ]
+    ping_failed = [
+        node
+        for node in ping_nodes
+        if node.get("last_ping_ok") is False and not node.get("last_read_probe_limited")
+    ]
+    issue_summaries: list[dict[str, Any]] = []
+    for node in issues[:5]:
+        name = node.get("friendly_name") or f"Node {node.get('node_id', '?')}"
+        last_ok = node.get("last_read_probe_ok")
+        if _node_available(node) and last_ok is False:
+            detail = (
+                "Matter Server reports this node as available, but recent safe read probes failed."
+            )
+        elif last_ok is False:
+            detail = "Recent safe read probes failed."
+        else:
+            failures = node.get("read_probe_failures_24h")
+            failures_text = failures if failures is not None else "unknown"
+            detail = f"Read probe failures in the last 24h: {failures_text}."
+        issue_summaries.append(
+            {
+                "name": name,
+                "node_id": node.get("node_id"),
+                "available": _node_available(node),
+                "last_read_probe_ok": last_ok,
+                "read_probe_failures_24h": node.get("read_probe_failures_24h"),
+                "detail": detail,
+            }
+        )
+    return {
+        "read_probe_diagnostics_available": len(diagnostics_nodes) > 0,
+        "matter_read_probe_issues": len(issues),
+        "matter_read_probe_available_but_failed": len(available_failed),
+        "read_probe_nodes_with_diagnostics": len(diagnostics_nodes),
+        "ping_diagnostics_available": len(ping_nodes) > 0,
+        "ping_probe_failures": len(ping_failed),
+        "read_probe_issue_nodes": issue_summaries,
+    }
 
 
 def build_panel_summary(
@@ -54,6 +126,10 @@ def build_panel_summary(
         "current_finding": None,
         "matter_node_count": 0,
         "matter_nodes_unavailable": 0,
+        "read_probe_diagnostics_available": False,
+        "matter_read_probe_issues": 0,
+        "matter_read_probe_available_but_failed": 0,
+        "read_probe_issue_nodes": [],
         "otbr_count": 0,
         "network_count": 0,
         "mqtt_connected": False,
@@ -73,8 +149,11 @@ def build_panel_summary(
     summary["core_version"] = (
         (data.version or {}).get("version") if isinstance(data.version, dict) else None
     )
-    summary["matter_node_count"] = len(data.matter_nodes or [])
-    summary["matter_nodes_unavailable"] = _matter_unavailable_count(data.matter_nodes or [])
+    matter_nodes = [node for node in (data.matter_nodes or []) if isinstance(node, dict)]
+    summary["matter_node_count"] = len(matter_nodes)
+    summary["matter_nodes_unavailable"] = _matter_unavailable_count(matter_nodes)
+    read_probe_summary = summarize_matter_read_probes(matter_nodes)
+    summary.update(read_probe_summary)
     summary["otbr_count"] = len(data.otbrs or [])
     summary["network_count"] = len(data.networks or [])
     summary["mqtt_connected"] = bool(mqtt.get("connected"))
