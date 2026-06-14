@@ -11,7 +11,7 @@ running separately. This integration provides a **native companion/status sideba
 entities, diagnostics, repairs, and access to the canonical Core dashboard — not a replacement for
 Core or MQTT Discovery entities.
 
-**Status: pre-1.0 / HACS-ready** (version `0.1.14`). Behaviour may change before 1.0.
+**Status: pre-1.0 / HACS-ready** (version `0.1.15`). Behaviour may change before 1.0.
 
 ## Install paths
 
@@ -84,6 +84,16 @@ http://threadlens.local:8128
 6. Go to **Settings → Devices & services → Add integration**
 7. Search for **ThreadLens** and enter your ThreadLens API URL (no trailing slash required)
 
+<p align="center">
+  <img src="docs/screenshots/config-flow.png" alt="ThreadLens config flow — enter Core API URL" width="480" />
+</p>
+
+After validation, Home Assistant prompts you to name the device:
+
+<p align="center">
+  <img src="docs/screenshots/device-setup.png" alt="ThreadLens device setup — name and assign" width="480" />
+</p>
+
 ## Manual install
 
 Copy `custom_components/threadlens` into your Home Assistant `config/custom_components/` directory
@@ -102,6 +112,12 @@ Validation calls:
 - `GET /api/v1/version`
 - `GET /api/v1/health`
 
+The integration creates a **ThreadLens Core API** device with helper entities for automations and diagnostics:
+
+<p align="center">
+  <img src="docs/screenshots/device-page.png" alt="ThreadLens device page — sensors, controls, and activity" width="720" />
+</p>
+
 ### Optional embedded dashboard
 
 The default sidebar experience is a **native companion/status panel**. It remains useful even when
@@ -111,6 +127,12 @@ browser security blocks iframe embedding.
 - **Embed Core dashboard in sidebar** is an opt-in integration option (`embed_dashboard`, default
   `false`). Enable it under **Settings → Devices & services → ThreadLens → Configure** only if your
   browser setup allows iframe embedding.
+
+The canonical Core dashboard (opened separately, not duplicated in HACS):
+
+<p align="center">
+  <img src="docs/screenshots/core-dashboard.png" alt="ThreadLens Core v0.2.0 full dashboard — incident summary, health cards, and Matter node list" width="720" />
+</p>
 
 If Home Assistant is served over **HTTPS** and ThreadLens Core is **HTTP**, browsers block mixed
 content. The panel keeps the native companion view and shows a calm note instead of a broken iframe.
@@ -131,6 +153,16 @@ dashboard** button. Optional iframe embedding is off unless you enable it in int
 
 The panel fetches data from Home Assistant, which polls ThreadLens Core every 60 seconds; use the
 **Refresh** button for an immediate update.
+
+<p align="center">
+  <img src="docs/screenshots/native-companion-panel.png" alt="ThreadLens native companion sidebar panel with connected status, incident summary, and Matter node health" width="720" />
+</p>
+
+Click a Matter node row to open detail with availability history and a conservative assessment:
+
+<p align="center">
+  <img src="docs/screenshots/matter-node-detail.png" alt="Matter node detail — availability, firmware, and recent events" width="720" />
+</p>
 
 ### After a HACS update
 
@@ -181,8 +213,16 @@ It does not claim a root cause.
 
 ## Screenshots
 
-Screenshots are not included yet. See [docs/screenshots/README.md](docs/screenshots/README.md) for the
-recommended capture list before a public release.
+| Screenshot | Description |
+|------------|-------------|
+| [Config flow](docs/screenshots/config-flow.png) | Enter ThreadLens Core API URL during setup |
+| [Device setup](docs/screenshots/device-setup.png) | Name and assign the ThreadLens device |
+| [Device page](docs/screenshots/device-page.png) | Helper entities, controls, and activity |
+| [Native companion panel](docs/screenshots/native-companion-panel.png) | HACS sidebar status and Matter health |
+| [Matter node detail](docs/screenshots/matter-node-detail.png) | Click-through node diagnostics |
+| [Core dashboard](docs/screenshots/core-dashboard.png) | Full ThreadLens Core UI (opened separately) |
+
+Still to capture: options flow (`embed_dashboard` toggle), mixed-content iframe fallback. See [docs/screenshots/README.md](docs/screenshots/README.md).
 
 ## Entities created by this integration
 
