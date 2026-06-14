@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ThreadLens",
+        "description": "Connect to a running ThreadLens Core API instance.",
+        "data": {
+          "url": "ThreadLens API URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the ThreadLens API",
+      "invalid_response": "The ThreadLens API returned an invalid response",
+      "unknown": "An unknown error occurred"
+    },
+    "abort": {
+      "already_configured": "ThreadLens is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "api_health": {
+        "name": "API health"
+      },
+      "environment_health": {
+        "name": "Environment health"
+      },
+      "last_report_generated_at": {
+        "name": "Last report generated at"
+      },
+      "event_count_24h": {
+        "name": "Event count (24h)"
+      },
+      "warning_count_24h": {
+        "name": "Warning count (24h)"
+      }
+    },
+    "binary_sensor": {
+      "api_connected": {
+        "name": "API connected"
+      },
+      "mqtt_connected": {
+        "name": "MQTT connected"
+      },
+      "mdns_observer_running": {
+        "name": "mDNS observer running"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      },
+      "generate_report": {
+        "name": "Generate report"
+      }
+    }
+  }
+}
