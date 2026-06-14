@@ -18,6 +18,17 @@
       "already_configured": "ThreadLens is already configured"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ThreadLens options",
+        "description": "Optional sidebar behaviour for the ThreadLens companion panel.",
+        "data": {
+          "embed_dashboard": "Embed Core dashboard in sidebar when browser security allows"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "api_health": {

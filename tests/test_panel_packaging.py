@@ -96,6 +96,23 @@ def test_panel_health_section_uses_labels_only():
     assert "All reason codes" not in contents
 
 
+def test_panel_has_optional_embedded_dashboard_support():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "Open full ThreadLens dashboard" in contents
+    assert "_companionAccessSection" in contents
+    assert "show_embedded_dashboard" in contents
+    assert "tl-dashboard-iframe" in contents
+    assert 'rel="noopener noreferrer"' in contents
+    assert "HTTP dashboards inside HTTPS Home Assistant pages" not in contents
+
+
+def test_panel_keeps_native_companion_content_without_iframe():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "Network incident summary" in contents
+    assert "Full dashboard access" in contents
+    assert "Optional embedded dashboard is off" in contents
+
+
 def test_panel_shows_actionable_errors_instead_of_endless_loading():
     contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
     assert "ThreadLens panel unavailable" in contents
