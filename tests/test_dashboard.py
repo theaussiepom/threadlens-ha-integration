@@ -351,6 +351,8 @@ def test_foreign_trel_alone_is_informational():
     # With only informational reasons the overall display downgrades.
     assert payload["threadlens"]["overall_health"] == "healthy"
     assert payload["threadlens"]["overall_health_raw"] == "warning"
+    informational = payload["threadlens"]["informational_reasons"]
+    assert any(r["code"] == "foreign_trel_services_observed" for r in informational)
 
 
 def test_trel_real_instability_stays_warning():
