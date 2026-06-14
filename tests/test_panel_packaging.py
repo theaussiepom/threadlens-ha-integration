@@ -12,6 +12,13 @@ INTEGRATION_DIR = REPO_ROOT / "custom_components" / "threadlens"
 PANEL_DIR = INTEGRATION_DIR / "panel"
 
 
+def test_panel_js_has_no_syntax_errors():
+    import subprocess
+
+    panel_js = PANEL_DIR / "threadlens-panel.js"
+    subprocess.run(["node", "--check", str(panel_js)], check=True)
+
+
 def test_panel_js_is_packaged():
     panel_js = PANEL_DIR / "threadlens-panel.js"
     assert panel_js.is_file(), "Bundled panel JS must ship with the integration"
@@ -58,15 +65,35 @@ def test_panel_opens_report_via_signed_proxy_in_new_tab():
     assert '"_blank"' in contents
 
 
-def test_panel_has_node_health_and_incident_view():
+def test_panel_has_node_health_without_ha_entities():
     contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
     assert "Network incident summary" in contents
     assert "Matter node health" in contents
     assert "data-node-id" in contents
     assert "What this suggests" in contents
+    assert "Overall health" in contents
     assert "mdi:access-point-network" in contents
     assert "View" in contents
-    assert "hard-refresh" in contents
+    assert "offline_episodes_24h" in contents
+    assert "_availabilityLine" in contents
+
+
+def test_panel_does_not_surface_ha_entity_lists():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "Home Assistant names" not in contents
+    assert "_haNamesSection" not in contents
+    assert "_formatHaEntities" not in contents
+    assert "ha_entity_ids" not in contents
+    assert "HA device:" not in contents
+    assert "Home Assistant entities" not in contents
+
+
+def test_panel_health_section_uses_labels_only():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "ThreadLens Core reports" not in contents
+    assert "informational_reasons" not in contents
+    assert "tl-chip-info" not in contents
+    assert "All reason codes" not in contents
 
 
 def test_panel_shows_actionable_errors_instead_of_endless_loading():
@@ -74,25 +101,3 @@ def test_panel_shows_actionable_errors_instead_of_endless_loading():
     assert "ThreadLens panel unavailable" in contents
     assert "ThreadLens API unavailable" in contents
     assert "Invalid ThreadLens dashboard response" in contents
-
-
-def test_panel_collates_home_assistant_names():
-    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
-    assert "Home Assistant names" in contents
-    assert "_haNamesSection" in contents
-    assert "ha_entity_ids" in contents
-
-
-def test_panel_shows_informational_health_observations():
-    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
-    assert "informational_reasons" in contents
-    assert "tl-chip-info" in contents
-    assert "ThreadLens Core reports" in contents
-
-
-def test_panel_shows_availability_on_node_rows():
-    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
-    assert "offline_episodes_24h" in contents
-    assert "_availabilityLine" in contents
-    assert "Command availability churn (24h)" not in contents
-    assert "_availabilityChurnSection" not in contents

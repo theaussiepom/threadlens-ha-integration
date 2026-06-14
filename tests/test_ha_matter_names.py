@@ -229,6 +229,9 @@ def test_dashboard_uses_ha_device_name_for_display():
     assert node["name"] == "Study Blind 1"
     assert node["matter_name"] == "SCM-MT-2507-0099"
     assert node["ha_device_name"] == "Study Blind 1"
+    assert "ha_entity_names" not in node
+    assert "ha_entity_ids" not in node
+    assert "ha_cover_entity_ids" not in node
 
 
 def test_dashboard_reports_ha_name_match_counts():
