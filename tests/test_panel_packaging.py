@@ -81,3 +81,10 @@ def test_panel_collates_home_assistant_names():
     assert "Home Assistant names" in contents
     assert "_haNamesSection" in contents
     assert "ha_entity_ids" in contents
+
+
+def test_panel_shows_informational_health_observations():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "informational_reasons" in contents
+    assert "tl-chip-info" in contents
+    assert "ThreadLens Core reports" in contents

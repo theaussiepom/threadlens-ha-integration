@@ -36,6 +36,9 @@ class ThreadLensApiHealthSensor(ThreadLensEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        summary = self._health_summary()
+        if summary:
+            return str(summary["overall_health"])
         return self._health_value("overall", "state")
 
 
@@ -44,6 +47,9 @@ class ThreadLensEnvironmentHealthSensor(ThreadLensEntity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
+        summary = self._health_summary()
+        if summary:
+            return str(summary["environment_health"])
         return self._health_value("environment", "state")
 
 

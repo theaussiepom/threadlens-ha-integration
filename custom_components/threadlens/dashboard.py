@@ -691,6 +691,44 @@ def build_node_detail(
     }
 
 
+def compute_health_summary(
+    *,
+    connected: bool,
+    health: dict[str, Any] | None,
+    otbrs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return the shared health view used by the dashboard panel and HA entities."""
+    otbrs = otbrs or []
+    overall = health.get("overall") if isinstance(health, dict) else None
+    environment = health.get("environment") if isinstance(health, dict) else None
+
+    prominent_reasons, all_reasons = _combined_reasons_filtered(otbrs, overall, environment)
+    prominent_codes = {reason["code"] for reason in prominent_reasons}
+    informational_reasons = [
+        reason for reason in all_reasons if reason["code"] not in prominent_codes
+    ]
+
+    overall_raw = _state(overall) if connected else "unknown"
+    environment_raw = _state(environment) if connected else "unknown"
+    overall_display = overall_raw
+    environment_display = environment_raw
+    if connected and not prominent_reasons:
+        if overall_raw == "warning":
+            overall_display = "healthy"
+        if environment_raw == "warning":
+            environment_display = "healthy"
+
+    return {
+        "overall_health": overall_display,
+        "environment_health": environment_display,
+        "overall_health_raw": overall_raw,
+        "environment_health_raw": environment_raw,
+        "reasons": prominent_reasons,
+        "reasons_all": all_reasons,
+        "informational_reasons": informational_reasons,
+    }
+
+
 def build_dashboard_payload(
     *,
     connected: bool,
@@ -723,8 +761,6 @@ def build_dashboard_payload(
 
     version_str = version.get("version") if isinstance(version, dict) else None
 
-    overall = health.get("overall") if isinstance(health, dict) else None
-    environment = health.get("environment") if isinstance(health, dict) else None
     mdns_health = health.get("mdns") if isinstance(health, dict) else None
     trel_health = health.get("trel") if isinstance(health, dict) else None
 
@@ -748,19 +784,18 @@ def build_dashboard_payload(
     foreign_trel = sum(1 for service in trel_services if service.get("is_foreign"))
 
     otbr_entries = [_otbr_entry(item) for item in otbrs if isinstance(item, dict)]
-    prominent_reasons, all_reasons = _combined_reasons_filtered(otbrs, overall, environment)
-
-    # Dashboard-facing health downgrades a raw "warning" to "healthy" only when no
-    # prominent reasons remain (i.e. only informational/reconciled observations).
-    overall_raw = _state(overall) if connected else "unknown"
-    environment_raw = _state(environment) if connected else "unknown"
-    overall_display = overall_raw
-    environment_display = environment_raw
-    if connected and not prominent_reasons:
-        if overall_raw == "warning":
-            overall_display = "healthy"
-        if environment_raw == "warning":
-            environment_display = "healthy"
+    health_summary = compute_health_summary(
+        connected=connected,
+        health=health,
+        otbrs=otbrs,
+    )
+    prominent_reasons = health_summary["reasons"]
+    all_reasons = health_summary["reasons_all"]
+    overall_display = health_summary["overall_health"]
+    environment_display = health_summary["environment_health"]
+    overall_raw = health_summary["overall_health_raw"]
+    environment_raw = health_summary["environment_health_raw"]
+    informational_reasons = health_summary["informational_reasons"]
 
     # TREL: foreign services alone are informational. Only show warning/degraded
     # when a non-informational reason is present.
@@ -808,6 +843,7 @@ def build_dashboard_payload(
             "environment_health_raw": environment_raw,
             "reasons": prominent_reasons,
             "reasons_all": all_reasons,
+            "informational_reasons": informational_reasons,
         },
         "incident": incident,
         "otbrs": otbr_entries,

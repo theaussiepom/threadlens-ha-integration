@@ -556,10 +556,38 @@ class ThreadLensPanel extends HTMLElement {
 
   _overallCard(tl) {
     const reasons = tl.reasons || [];
+    const informational = tl.informational_reasons || [];
     const allReasons = tl.reasons_all || reasons;
-    const chips = reasons.length
-      ? reasons.map((r) => `<span class="tl-chip tl-chip-warn">${esc(r.label)}</span>`).join("")
-      : `<span class="tl-muted">No active warnings</span>`;
+    const rawDiffers =
+      (tl.overall_health_raw && tl.overall_health_raw !== tl.overall_health) ||
+      (tl.environment_health_raw && tl.environment_health_raw !== tl.environment_health);
+
+    let chips = "";
+    if (reasons.length) {
+      chips = reasons
+        .map((r) => `<span class="tl-chip tl-chip-warn">${esc(r.label)}</span>`)
+        .join("");
+    } else if (informational.length) {
+      chips = informational
+        .map((r) => `<span class="tl-chip tl-chip-info">${esc(r.label)}</span>`)
+        .join("");
+    } else {
+      chips = `<span class="tl-muted">No active warnings</span>`;
+    }
+
+    const rawNote = rawDiffers
+      ? `<p class="tl-muted tl-info-text">ThreadLens Core reports <strong>${esc(
+          tl.overall_health_raw || "unknown"
+        )}</strong> overall / <strong>${esc(
+          tl.environment_health_raw || "unknown"
+        )}</strong> environment. The observations below are informational and do not require action.</p>`
+      : "";
+
+    const informationalNote =
+      informational.length && !reasons.length
+        ? `<p class="tl-muted tl-info-text">Informational observations only — matched on both the dashboard and integration sensors.</p>`
+        : "";
+
     const rawCodes = allReasons.map((r) => r.code).join(", ");
     const details = allReasons.length
       ? `<details class="tl-details"><summary>All reason codes</summary><code>${esc(rawCodes)}</code></details>`
@@ -576,7 +604,9 @@ class ThreadLensPanel extends HTMLElement {
             ${badge(tl.environment_health)}
           </div>
         </div>
+        ${rawNote}
         <div class="tl-chips">${chips}</div>
+        ${informationalNote}
         ${details}
       </div>`;
   }
@@ -839,6 +869,11 @@ class ThreadLensPanel extends HTMLElement {
         background: color-mix(in srgb, var(--warning-color, #fb8c00) 12%, transparent);
         border-color: var(--warning-color, #fb8c00);
         color: var(--primary-text-color, #4e342e);
+      }
+      .tl-chip-info {
+        background: var(--secondary-background-color, #f5f5f5);
+        border-color: var(--divider-color, #bdbdbd);
+        color: var(--primary-text-color, #424242);
       }
       .tl-summary-grid {
         display: grid;
