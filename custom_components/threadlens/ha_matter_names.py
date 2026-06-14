@@ -19,8 +19,47 @@ MATTER_DOMAIN = "matter"
 _DEVICE_ID_PREFIX = "deviceid_"
 _SERIAL_PREFIX = "serial_"
 
-# Domains most likely to represent blinds/shades in Ben's environment.
-_PREFERRED_ENTITY_DOMAINS = ("cover", "switch", "light", "binary_sensor")
+
+def coerce_matter_node_id(value: Any) -> int | None:
+    """Normalise ThreadLens/HA Matter node IDs to a comparable integer."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.lower().startswith("0x"):
+            try:
+                return int(raw, 16)
+            except ValueError:
+                return None
+        lowered = raw.lower()
+        if len(raw) == 16 and all(char in "0123456789abcdef" for char in lowered):
+            try:
+                return int(lowered, 16)
+            except ValueError:
+                return None
+        if raw.isdigit():
+            return int(raw)
+        if all(char in "0123456789abcdef" for char in lowered):
+            try:
+                return int(lowered, 16)
+            except ValueError:
+                return None
+    return None
+
+
+def parse_node_id_from_matter_unique_id(unique_id: Any) -> int | None:
+    """Extract a Matter node ID from a Matter entity ``unique_id``."""
+    if not isinstance(unique_id, str) or not unique_id:
+        return None
+    # {fabric_hex}-{node_id_hex}-{postfix}-...
+    parts = unique_id.split("-", 2)
+    if len(parts) < 2 or not parts[1]:
+        return None
+    return coerce_matter_node_id(parts[1])
 
 
 def parse_matter_node_id(
@@ -37,11 +76,17 @@ def parse_matter_node_id(
         parts = body.split("-", 2)
         if len(parts) < 2:
             continue
-        try:
-            return int(parts[1], 16)
-        except ValueError:
-            continue
+        node_id = coerce_matter_node_id(parts[1])
+        if node_id is not None:
+            return node_id
     return None
+
+
+def _normalise_serial(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    serial = value.strip()
+    return serial or None
 
 
 def parse_matter_serial(
@@ -52,7 +97,7 @@ def parse_matter_serial(
         return None
     for domain, ident in identifiers:
         if domain == MATTER_DOMAIN and ident.startswith(_SERIAL_PREFIX):
-            return ident[len(_SERIAL_PREFIX) :]
+            return _normalise_serial(ident[len(_SERIAL_PREFIX) :])
     return None
 
 
@@ -64,6 +109,55 @@ def _entity_display_name(entity: er.RegistryEntry) -> str | None:
     return entity.name or entity.original_name or None
 
 
+def _entity_platform(entity: er.RegistryEntry) -> str | None:
+    platform = getattr(entity, "platform", None)
+    if isinstance(platform, str) and platform:
+        return platform
+    domain = getattr(entity, "domain", None)
+    return domain if isinstance(domain, str) and domain else None
+
+
+def _empty_bucket() -> dict[str, Any]:
+    return {
+        "ha_device_name": None,
+        "ha_entity_names": [],
+        "ha_entity_ids": [],
+        "ha_cover_entity_ids": [],
+    }
+
+
+def _bucket_for_node(by_node_id: dict[int, dict[str, Any]], node_id: int) -> dict[str, Any]:
+    bucket = by_node_id.get(node_id)
+    if bucket is None:
+        bucket = _empty_bucket()
+        by_node_id[node_id] = bucket
+    return bucket
+
+
+def _append_entity_to_bucket(bucket: dict[str, Any], entity: er.RegistryEntry) -> None:
+    display = _entity_display_name(entity)
+    if display and display not in bucket["ha_entity_names"]:
+        bucket["ha_entity_names"].append(display)
+    if entity.entity_id not in bucket["ha_entity_ids"]:
+        bucket["ha_entity_ids"].append(entity.entity_id)
+    if entity.domain == "cover" and entity.entity_id not in bucket["ha_cover_entity_ids"]:
+        bucket["ha_cover_entity_ids"].append(entity.entity_id)
+
+
+def _sort_bucket_entities(bucket: dict[str, Any]) -> None:
+    names = bucket.get("ha_entity_names") or []
+    ids = bucket.get("ha_entity_ids") or []
+    paired = list(zip(ids, names, strict=False))
+    paired.sort(
+        key=lambda item: (
+            0 if item[0].startswith("cover.") else 1,
+            item[1] or item[0],
+        )
+    )
+    bucket["ha_entity_names"] = [name for _, name in paired if name]
+    bucket["ha_entity_ids"] = [eid for eid, _ in paired]
+
+
 def build_matter_ha_lookup_from_registry(
     devices: list[dr.DeviceEntry],
     entities: list[er.RegistryEntry],
@@ -71,6 +165,7 @@ def build_matter_ha_lookup_from_registry(
     """Build lookup tables keyed by ``node_id`` and ``serial`` from registry snapshots."""
     by_node_id: dict[int, dict[str, Any]] = {}
     by_serial: dict[str, dict[str, Any]] = {}
+    devices_by_id = {device.id: device for device in devices}
 
     for device in devices:
         identifiers = getattr(device, "identifiers", None) or ()
@@ -80,55 +175,54 @@ def build_matter_ha_lookup_from_registry(
         if node_id is None and not serial:
             continue
 
-        bucket = {
-            "ha_device_name": device_name,
-            "ha_entity_names": [],
-            "ha_entity_ids": [],
-            "ha_cover_entity_ids": [],
-        }
+        bucket = _empty_bucket()
+        bucket["ha_device_name"] = device_name
 
         if node_id is not None:
             existing = by_node_id.get(node_id)
-            if existing and not bucket["ha_device_name"]:
+            if existing:
                 bucket = existing
-            elif existing and bucket["ha_device_name"]:
-                # Prefer a user-renamed device when multiple HA devices map to one node.
-                if device.name_by_user and not existing.get("ha_device_name_user_set"):
-                    existing["ha_device_name"] = device_name
-                    existing["ha_device_name_user_set"] = True
-                bucket = existing
+                if device_name and (
+                    not bucket.get("ha_device_name")
+                    or (device.name_by_user and not existing.get("ha_device_name_user_set"))
+                ):
+                    bucket["ha_device_name"] = device_name
+                    if device.name_by_user:
+                        bucket["ha_device_name_user_set"] = True
             else:
                 by_node_id[node_id] = bucket
                 if device.name_by_user:
                     bucket["ha_device_name_user_set"] = True
 
         if serial:
-            by_serial[serial] = bucket
+            existing_serial = by_serial.get(serial)
+            if existing_serial:
+                bucket = existing_serial
+            else:
+                by_serial[serial] = bucket
 
         for entity in entities:
             if entity.device_id != device.id or entity.disabled_by:
                 continue
-            display = _entity_display_name(entity)
-            if display and display not in bucket["ha_entity_names"]:
-                bucket["ha_entity_names"].append(display)
-            if entity.entity_id not in bucket["ha_entity_ids"]:
-                bucket["ha_entity_ids"].append(entity.entity_id)
-            if entity.domain == "cover" and entity.entity_id not in bucket["ha_cover_entity_ids"]:
-                bucket["ha_cover_entity_ids"].append(entity.entity_id)
+            _append_entity_to_bucket(bucket, entity)
 
-    # Sort entity names with covers first for blinds.
+    # Fallback: map Matter entities directly via unique_id when device links are missing.
+    for entity in entities:
+        if entity.disabled_by or _entity_platform(entity) != MATTER_DOMAIN:
+            continue
+        node_id = parse_node_id_from_matter_unique_id(getattr(entity, "unique_id", None))
+        if node_id is None:
+            continue
+        bucket = _bucket_for_node(by_node_id, node_id)
+        device = devices_by_id.get(entity.device_id) if entity.device_id else None
+        if device and not bucket.get("ha_device_name"):
+            bucket["ha_device_name"] = _device_display_name(device)
+            if device.name_by_user:
+                bucket["ha_device_name_user_set"] = True
+        _append_entity_to_bucket(bucket, entity)
+
     for bucket in {**by_node_id, **by_serial}.values():
-        names = bucket.get("ha_entity_names") or []
-        ids = bucket.get("ha_entity_ids") or []
-        paired = list(zip(ids, names, strict=False))
-        paired.sort(
-            key=lambda item: (
-                0 if item[0].startswith("cover.") else 1,
-                item[1] or item[0],
-            )
-        )
-        bucket["ha_entity_names"] = [name for _, name in paired if name]
-        bucket["ha_entity_ids"] = [eid for eid, _ in paired]
+        _sort_bucket_entities(bucket)
 
     return {"by_node_id": by_node_id, "by_serial": by_serial}
 
@@ -139,15 +233,15 @@ def resolve_ha_names_for_node(
     """Return HA name fields for a ThreadLens matter node, or empty defaults."""
     if not lookup:
         return {}
-    node_id = node.get("node_id")
-    serial = node.get("serial")
+    node_id = coerce_matter_node_id(node.get("node_id"))
+    serial = _normalise_serial(node.get("serial"))
     by_node_id = lookup.get("by_node_id") or {}
     by_serial = lookup.get("by_serial") or {}
 
     match: dict[str, Any] | None = None
     if node_id is not None and node_id in by_node_id:
         match = by_node_id[node_id]
-    elif isinstance(serial, str) and serial in by_serial:
+    elif serial and serial in by_serial:
         match = by_serial[serial]
 
     if not match:
