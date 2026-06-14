@@ -1,0 +1,87 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio aiohttp ruff
+
+      - name: Ruff check
+        run: ruff check custom_components tests
+
+      - name: Ruff format check
+        run: ruff format --check custom_components tests
+
+      - name: Pytest
+        run: pytest tests/ -q
+
+      - name: Panel JS syntax check
+        run: node --check custom_components/threadlens/panel/threadlens-panel.js
+
+      - name: HACS and package validation
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".")
+          integration = root / "custom_components" / "threadlens"
+          panel_js = integration / "panel" / "threadlens-panel.js"
+
+          hacs = json.loads((root / "hacs.json").read_text())
+          assert hacs["filename"] == "threadlens"
+          assert "threadlens" in hacs["domains"]
+          assert hacs["content_in_root"] is False
+
+          manifest = json.loads((integration / "manifest.json").read_text())
+          assert manifest["domain"] == "threadlens"
+          assert manifest["version"] == "0.1.0"
+          for dep in ("http", "websocket_api", "frontend", "panel_custom"):
+              assert dep in manifest["dependencies"], f"Missing manifest dependency: {dep}"
+
+          assert panel_js.is_file(), "Panel JS must be packaged"
+          panel_text = panel_js.read_text(encoding="utf-8")
+          assert "threadlens/dashboard" in panel_text
+          assert "https://" not in panel_text
+          assert "http://" not in panel_text.replace("rgba(0,0,0", "")
+          assert "import " not in panel_text and "require(" not in panel_text
+
+          required = [
+              "__init__.py",
+              "manifest.json",
+              "config_flow.py",
+              "const.py",
+              "api.py",
+              "coordinator.py",
+              "sensor.py",
+              "binary_sensor.py",
+              "button.py",
+              "diagnostics.py",
+              "dashboard.py",
+              "websocket.py",
+              "frontend.py",
+              "panel/threadlens-panel.js",
+              "translations/en.json",
+          ]
+          for rel in required:
+              assert (integration / rel).is_file(), f"Missing integration file: {rel}"
+
+          print("HACS/package validation passed")
+          PY

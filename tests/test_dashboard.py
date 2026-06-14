@@ -1,0 +1,229 @@
+"""Tests for the pure dashboard aggregation logic."""
+
+from __future__ import annotations
+
+from support import load_dashboard_module
+
+dashboard = load_dashboard_module()
+build_dashboard_payload = dashboard.build_dashboard_payload
+build_disconnected_payload = dashboard.build_disconnected_payload
+humanize_reason = dashboard.humanize_reason
+
+VERSION = {"tool": "ThreadLens", "version": "0.1.2"}
+
+HEALTHY_HEALTH = {
+    "overall": {"state": "healthy", "reasons": []},
+    "environment": {"state": "healthy", "reasons": []},
+    "mdns": {"state": "healthy", "reasons": []},
+    "trel": {"state": "healthy", "reasons": []},
+    "matter_servers": [{"id": "m1", "state": "healthy", "reasons": []}],
+    "matter_nodes": [{"node_id": 1, "state": "healthy", "reasons": []}],
+    "thread_networks": [{"ext_pan_id": "ABCD", "state": "healthy"}],
+}
+
+STATUS = {
+    "collectors": {
+        "mqtt": {
+            "enabled": True,
+            "connected": True,
+            "homeassistant_discovery_enabled": True,
+            "last_publish_at": "2026-06-14T12:00:00+00:00",
+            "last_error": None,
+        },
+        "mdns": {"observer_running": True, "observation_degraded": False},
+    },
+    "reports": {"last_generated_at": "2026-06-14T12:00:00+00:00"},
+}
+
+REPORT_URLS = {
+    "yaml": "http://tl:8128/api/v1/report.yaml",
+    "json": "http://tl:8128/api/v1/report.json",
+}
+
+
+def _healthy_payload():
+    return build_dashboard_payload(
+        connected=True,
+        last_update="2026-06-14T12:00:00+00:00",
+        version=VERSION,
+        status=STATUS,
+        health=HEALTHY_HEALTH,
+        otbrs=[
+            {
+                "id": "otbr1",
+                "name": "Study OTBR",
+                "reachable": True,
+                "health": {"state": "healthy", "reasons": []},
+                "thread_state": "active",
+                "role": "leader",
+                "network_name": "MyThread",
+                "rloc16": "0x4400",
+                "ext_pan_id": "ABCD",
+                "thread_state_source": "json_api",
+                "rest_endpoint_mismatch": False,
+            }
+        ],
+        networks=[
+            {
+                "ext_pan_id": "ABCD",
+                "name": "MyThread",
+                "channel": 15,
+                "pan_id": "0x1234",
+                "border_router_count": 1,
+                "classification": "primary",
+            }
+        ],
+        matter_servers=[{"id": "m1", "name": "Matter", "connected": True}],
+        matter_nodes=[
+            {"node_id": 1, "server_id": "m1", "available": True, "friendly_name": "Light"}
+        ],
+        mdns_services=[
+            {"service_type": "_matter._tcp.local.", "service_id": "a"},
+            {"service_type": "_matter._tcp.local.", "service_id": "b"},
+            {"service_type": "_meshcop._udp.local.", "service_id": "c"},
+        ],
+        trel_services=[{"service_id": "t1", "is_foreign": False}],
+        report_urls=REPORT_URLS,
+    )
+
+
+def test_healthy_payload_shape():
+    payload = _healthy_payload()
+    assert payload["threadlens"]["api_connected"] is True
+    assert payload["threadlens"]["version"] == "0.1.2"
+    assert payload["threadlens"]["overall_health"] == "healthy"
+    assert payload["threadlens"]["environment_health"] == "healthy"
+    assert payload["threadlens"]["reasons"] == []
+    assert payload["error"] is None
+
+    assert len(payload["otbrs"]) == 1
+    assert payload["otbrs"][0]["extended_pan_id"] == "ABCD"
+    assert payload["otbrs"][0]["rest_endpoint_mismatch"] is False
+
+    assert len(payload["networks"]) == 1
+    assert payload["networks"][0]["classification"] == "primary"
+    assert payload["networks"][0]["health"] == "healthy"
+
+    assert payload["matter"]["servers"] == 1
+    assert payload["matter"]["servers_connected"] == 1
+    assert payload["matter"]["node_count"] == 1
+    assert payload["matter"]["unavailable_count"] == 0
+    assert payload["matter"]["health"] == "healthy"
+
+    assert payload["mdns"]["service_count"] == 3
+    assert payload["mdns"]["top_service_types"][0] == {
+        "service_type": "_matter._tcp.local.",
+        "count": 2,
+    }
+    assert payload["trel"]["service_count"] == 1
+    assert payload["trel"]["foreign_service_count"] == 0
+
+    assert payload["mqtt"]["connected"] is True
+    assert payload["report"]["report_url"].endswith("/api/v1/report.yaml")
+    assert payload["report"]["last_generated_at"] == "2026-06-14T12:00:00+00:00"
+
+
+def test_warning_reasons_are_friendly():
+    health = {
+        "overall": {"state": "warning", "reasons": ["mdns_service_flapping_degraded"]},
+        "environment": {
+            "state": "warning",
+            "reasons": ["foreign_trel_services_observed"],
+        },
+    }
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=health,
+        report_urls=REPORT_URLS,
+    )
+    assert payload["threadlens"]["overall_health"] == "warning"
+    labels = {r["label"] for r in payload["threadlens"]["reasons"]}
+    assert "mDNS service add/remove instability" in labels
+    assert "Other Thread/TREL services visible" in labels
+    codes = {r["code"] for r in payload["threadlens"]["reasons"]}
+    assert "mdns_service_flapping_degraded" in codes
+
+
+def test_otbr_endpoint_mismatch_appears():
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=HEALTHY_HEALTH,
+        otbrs=[
+            {
+                "id": "otbr1",
+                "name": "Study OTBR",
+                "reachable": True,
+                "health": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
+                "thread_state": "active",
+                "thread_state_source": "legacy_node",
+                "rest_endpoint_mismatch": True,
+                "json_api_thread_state": "disabled",
+                "legacy_node_thread_state": "active",
+            }
+        ],
+        report_urls=REPORT_URLS,
+    )
+    otbr = payload["otbrs"][0]
+    assert otbr["rest_endpoint_mismatch"] is True
+    assert otbr["thread_state_source"] == "legacy_node"
+    assert otbr["json_api_thread_state"] == "disabled"
+    assert any(r["code"] == "otbr_rest_endpoint_mismatch" for r in otbr["reasons"])
+
+
+def test_unavailable_matter_nodes_listed():
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=HEALTHY_HEALTH,
+        matter_servers=[{"id": "m1", "connected": True}],
+        matter_nodes=[
+            {"node_id": 1, "server_id": "m1", "available": True},
+            {"node_id": 2, "server_id": "m1", "available": False, "friendly_name": "Sensor"},
+        ],
+        report_urls=REPORT_URLS,
+    )
+    assert payload["matter"]["unavailable_count"] == 1
+    assert payload["matter"]["unavailable_nodes"][0]["node_id"] == 2
+
+
+def test_disconnected_payload_is_structured():
+    payload = build_disconnected_payload(
+        version=VERSION,
+        last_update="2026-06-14T12:00:00+00:00",
+        report_urls=REPORT_URLS,
+        error="Cannot reach the ThreadLens API",
+    )
+    assert payload["threadlens"]["api_connected"] is False
+    assert payload["threadlens"]["overall_health"] == "unknown"
+    assert payload["error"] == "Cannot reach the ThreadLens API"
+    assert payload["otbrs"] == []
+    assert payload["matter"]["node_count"] == 0
+    assert payload["report"]["report_url"].endswith("/api/v1/report.yaml")
+
+
+def test_no_mqtt_dependency():
+    """Dashboard data builds fully even when MQTT status is absent."""
+    status_no_mqtt = {
+        "collectors": {"mdns": {"observation_degraded": False}},
+        "reports": {"last_generated_at": None},
+    }
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=status_no_mqtt,
+        health=HEALTHY_HEALTH,
+        report_urls=REPORT_URLS,
+    )
+    assert payload["mqtt"] is None
+    assert payload["threadlens"]["overall_health"] == "healthy"
+    assert payload["mdns"]["service_count"] == 0
+
+
+def test_humanize_unknown_reason():
+    assert humanize_reason("some_new_reason_code") == "Some new reason code"
+    assert humanize_reason("otbr_thread_stack_disabled") == "OTBR Thread stack disabled"
