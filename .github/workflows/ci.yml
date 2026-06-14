@@ -52,7 +52,7 @@ jobs:
 
           manifest = json.loads((integration / "manifest.json").read_text())
           assert manifest["domain"] == "threadlens"
-          assert manifest["version"] == "0.1.2"
+          assert manifest["version"] == "0.1.3"
           for dep in ("http", "websocket_api", "frontend", "panel_custom"):
               assert dep in manifest["dependencies"], f"Missing manifest dependency: {dep}"
 
@@ -79,6 +79,8 @@ jobs:
               "frontend.py",
               "report_view.py",
               "ha_matter_names.py",
+              "brand/icon.png",
+              "brand/logo.png",
               "panel/threadlens-panel.js",
               "translations/en.json",
           ]
