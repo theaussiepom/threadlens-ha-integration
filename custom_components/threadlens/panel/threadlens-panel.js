@@ -337,7 +337,6 @@ class ThreadLensPanel extends HTMLElement {
           <span>${esc(matter.unknown_count || 0)} unknown</span>
         </div>
         ${this._haNamesSection(matter)}
-        ${this._availabilityChurnSection(matter)}
         ${sections}
         <p class="tl-muted tl-note">Click a row (or View) to inspect recent events and assessment.</p>
       </div>`;
@@ -403,57 +402,6 @@ class ThreadLensPanel extends HTMLElement {
       </div>`;
   }
 
-  _availabilityChurnSection(matter) {
-    const nodes = matter.nodes || [];
-    if (!nodes.length) {
-      return "";
-    }
-
-    const ranked = [...nodes].sort((a, b) => {
-      const aScore =
-        (a.unsubscribe_count_24h || 0) * 100000 +
-        (a.median_offline_seconds_24h || 0);
-      const bScore =
-        (b.unsubscribe_count_24h || 0) * 100000 +
-        (b.median_offline_seconds_24h || 0);
-      return bScore - aScore;
-    });
-
-    const rows = ranked
-      .map((n) => {
-        const metricLabel = n.subscription_diagnostics_available
-          ? "subscription cycles"
-          : "command unavailability";
-        return `
-          <div class="tl-availability-row">
-            <span class="tl-availability-node">${esc(n.name)} <span class="tl-muted">#${esc(n.node_id)}</span></span>
-            <span>${esc(n.unsubscribe_count_24h || 0)} down / ${esc(n.resubscribe_count_24h || 0)} up</span>
-            <span>${esc(fmtDuration(n.median_offline_seconds_24h))}</span>
-            <span class="tl-muted">${esc(n.offline_episodes_24h || 0)} episode(s)</span>
-          </div>
-          <div class="tl-availability-sub">${esc(metricLabel)} · ${esc(fmtDuration(n.total_offline_seconds_24h || 0))} total offline (24h)</div>`;
-      })
-      .join("");
-
-    return `
-      <div class="tl-availability">
-        <div class="tl-availability-head">
-          <strong>Command availability churn (24h)</strong>
-          <span class="tl-muted">Unsubscribe / resubscribe counts and median offline time</span>
-        </div>
-        <div class="tl-availability-table">
-          <div class="tl-availability-header">
-            <span>Node</span>
-            <span>Down / up</span>
-            <span>Median offline</span>
-            <span>Episodes</span>
-          </div>
-          ${rows}
-        </div>
-        <p class="tl-muted tl-note">Counts come from Matter node unavailable/recovered events. True subscription diagnostics are shown when ThreadLens Core exposes them.</p>
-      </div>`;
-  }
-
   _formatHaEntities(node) {
     const names = node.ha_entity_names || [];
     const ids = node.ha_entity_ids || [];
@@ -478,11 +426,9 @@ class ThreadLensPanel extends HTMLElement {
   _availabilityLine(n) {
     const down = n.unsubscribe_count_24h || 0;
     const up = n.resubscribe_count_24h || 0;
-    const median = fmtDuration(n.median_offline_seconds_24h);
-    if (!down && !up && n.median_offline_seconds_24h == null) {
-      return "";
-    }
-    return `<span class="tl-muted">${esc(down)} down / ${esc(up)} up · median offline ${esc(median)}</span>`;
+    const episodes = n.offline_episodes_24h || 0;
+    const episodeLabel = episodes === 1 ? "episode" : "episodes";
+    return `<span class="tl-muted">${esc(down)} down / ${esc(up)} up · ${esc(episodes)} ${episodeLabel} (24h)</span>`;
   }
 
   _nodeRow(n) {
@@ -500,21 +446,16 @@ class ThreadLensPanel extends HTMLElement {
       n.ha_device_name && n.ha_device_name !== n.name ? n.ha_device_name : "";
     const entityLine = this._formatHaEntities(n);
     const availabilityLine = this._availabilityLine(n);
-    const recent =
-      n.recent_unavailable_count || n.recent_recovered_count
-        ? `<span class="tl-muted">${esc(n.recent_unavailable_count || 0)} down / ${esc(n.recent_recovered_count || 0)} up (events)</span>`
-        : "";
     return `
       <div class="tl-node-row" data-node-id="${esc(n.node_id)}" role="button" tabindex="0" title="View node details">
         <div class="tl-node-row-main">
           <strong>${esc(n.name)}</strong>
           <span class="tl-muted">${esc(secondary.join(" · "))}</span>
           ${haDevice ? `<span class="tl-muted">HA device: ${esc(haDevice)}</span>` : ""}
-          ${availabilityLine ? `<div>${availabilityLine}</div>` : ""}
+          <div>${availabilityLine}</div>
           ${entityLine ? `<div class="tl-node-entities">${entityLine}</div>` : ""}
         </div>
         <div class="tl-node-row-meta">
-          ${recent}
           <span class="tl-node-view">View</span>
           ${nodeBadge(n.classification)}
         </div>
@@ -1089,48 +1030,6 @@ class ThreadLensPanel extends HTMLElement {
         border-top: 1px solid var(--divider-color, #eeeeee);
       }
       .tl-ha-names-node strong { font-weight: 600; }
-      .tl-availability {
-        margin-bottom: 14px;
-        padding: 12px;
-        border: 1px solid var(--divider-color, #e0e0e0);
-        border-radius: 8px;
-        background: var(--card-background-color, #fff);
-      }
-      .tl-availability-head {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        margin-bottom: 10px;
-      }
-      .tl-availability-table {
-        display: grid;
-        gap: 4px;
-        font-size: 0.85rem;
-      }
-      .tl-availability-header,
-      .tl-availability-row {
-        display: grid;
-        grid-template-columns: minmax(140px, 1.3fr) minmax(100px, 0.9fr) minmax(90px, 0.8fr) minmax(80px, 0.7fr);
-        gap: 10px;
-        align-items: start;
-      }
-      .tl-availability-header {
-        color: var(--secondary-text-color);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        font-size: 0.75rem;
-      }
-      .tl-availability-row {
-        padding-top: 8px;
-        border-top: 1px solid var(--divider-color, #eeeeee);
-      }
-      .tl-availability-sub {
-        grid-column: 1 / -1;
-        color: var(--secondary-text-color);
-        font-size: 0.78rem;
-        margin: -2px 0 4px;
-      }
       .tl-node-view {
         font-size: 0.8rem;
         color: var(--primary-color, #03a9f4);
