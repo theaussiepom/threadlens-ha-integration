@@ -470,9 +470,7 @@ def compute_node_availability_metrics(
     unavailable_count = sum(
         1 for _, event_type in transitions if event_type == _NODE_UNAVAILABLE_EVENT
     )
-    recovered_count = sum(
-        1 for _, event_type in transitions if event_type == _NODE_RECOVERED_EVENT
-    )
+    recovered_count = sum(1 for _, event_type in transitions if event_type == _NODE_RECOVERED_EVENT)
 
     offline_durations: list[float] = []
     offline_start: datetime | None = None
@@ -510,9 +508,7 @@ def compute_node_availability_metrics(
         "subscription_diagnostics_available": bool(subscription_diagnostics_available),
         "subscription_flaps_24h": subscription_flaps_24h,
         "availability_flaps_24h": availability_flaps_24h,
-        "median_offline_seconds_24h": (
-            int(median_offline) if median_offline is not None else None
-        ),
+        "median_offline_seconds_24h": (int(median_offline) if median_offline is not None else None),
         "offline_episodes_24h": len(offline_durations),
         "total_offline_seconds_24h": int(sum(offline_durations)),
     }
@@ -589,9 +585,7 @@ def _node_entry(
         available=node.get("available"),
         availability_flaps_24h=node.get("availability_flaps_24h"),
         subscription_flaps_24h=node.get("subscription_flaps_24h"),
-        subscription_diagnostics_available=bool(
-            node.get("subscription_diagnostics_available")
-        ),
+        subscription_diagnostics_available=bool(node.get("subscription_diagnostics_available")),
     )
     last_event_at = node_events[0].get("timestamp") if node_events else None
     classification = classify_matter_node(node, node_events)
