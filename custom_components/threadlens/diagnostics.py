@@ -9,8 +9,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .api import redact_url_for_diagnostics
-from .const import CONF_URL, DOMAIN
+from .const import CONF_EMBED_DASHBOARD, CONF_URL, DOMAIN
 from .coordinator import ThreadLensCoordinator
+from .panel_embed import embed_dashboard_enabled
 
 
 async def async_get_config_entry_diagnostics(
@@ -22,9 +23,11 @@ async def async_get_config_entry_diagnostics(
     return {
         "config": {
             CONF_URL: redact_url_for_diagnostics(entry.data.get(CONF_URL, "")),
+            CONF_EMBED_DASHBOARD: embed_dashboard_enabled(entry.options),
         },
         "connected": data.connected if data else False,
         "version": data.version if data else None,
+        "last_update": data.last_update if data else None,
         "health_overall": (data.health.get("overall") if data and data.health else None),
         "status_summary": {
             "mode": data.status.get("mode") if data and data.status else None,

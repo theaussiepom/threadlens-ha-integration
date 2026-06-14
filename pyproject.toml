@@ -1,6 +1,6 @@
 [project]
 name = "threadlens-ha-integration-tests"
-version = "0.1.13"
+version = "0.1.14"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.9",
