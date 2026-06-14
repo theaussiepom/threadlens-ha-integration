@@ -29,6 +29,12 @@
       }
     }
   },
+  "issues": {
+    "api_disconnected": {
+      "title": "ThreadLens Core API unreachable",
+      "description": "Home Assistant cannot reach ThreadLens Core at {url}. Confirm Core is running, the URL is correct, and the host can reach Core on your LAN."
+    }
+  },
   "entity": {
     "sensor": {
       "api_health": {

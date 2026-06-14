@@ -47,12 +47,11 @@ jobs:
 
           hacs = json.loads((root / "hacs.json").read_text())
           assert hacs["filename"] == "threadlens"
-          assert "threadlens" in hacs["domains"]
           assert hacs["content_in_root"] is False
 
           manifest = json.loads((integration / "manifest.json").read_text())
           assert manifest["domain"] == "threadlens"
-          assert manifest["version"] == "0.1.13"
+          assert manifest["version"] == "0.1.14"
           for dep in ("http", "websocket_api", "frontend", "panel_custom"):
               assert dep in manifest["dependencies"], f"Missing manifest dependency: {dep}"
 
@@ -78,6 +77,8 @@ jobs:
               "websocket.py",
               "frontend.py",
               "report_view.py",
+              "repairs.py",
+              "panel_embed.py",
               "ha_matter_names.py",
               "brand/icon.png",
               "brand/logo.png",

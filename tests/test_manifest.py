@@ -14,7 +14,7 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["domain"] == "threadlens"
     assert manifest["name"] == "ThreadLens"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.1.13"
+    assert manifest["version"] == "0.1.14"
     assert manifest["integration_type"] == "hub"
     assert manifest["iot_class"] == "local_polling"
     assert "aiohttp" in manifest["requirements"][0]
@@ -44,6 +44,12 @@ def test_hacs_json_parses() -> None:
     assert hacs["render_readme"] is True
     assert "homeassistant" in hacs
     assert hacs["homeassistant"] == "2026.3.0"
+    assert "domains" not in hacs
+
+
+def test_manifest_declares_optional_matter_after_dependency() -> None:
+    manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert "matter" in manifest.get("after_dependencies", [])
 
 
 def test_translations_include_config_flow_errors() -> None:
@@ -53,3 +59,5 @@ def test_translations_include_config_flow_errors() -> None:
     assert "cannot_connect" in translations["config"]["error"]
     assert "invalid_response" in translations["config"]["error"]
     assert translations["entity"]["sensor"]["api_health"]["name"]
+    assert "issues" in translations
+    assert "options" in translations

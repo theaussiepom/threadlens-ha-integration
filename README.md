@@ -7,17 +7,29 @@ HACS-compatible custom integration for [ThreadLens Core](https://github.com/thea
 <br clear="left" />
 
 This is the **Home Assistant / HACS integration** for ThreadLens. ThreadLens Core must already be
-running separately. This integration provides a **ThreadLens sidebar dashboard/panel** inside Home
-Assistant, powered by the ThreadLens REST API through the Home Assistant backend — not MQTT
-Discovery entities.
+running separately. This integration provides a **native companion/status sidebar panel**, helper
+entities, diagnostics, repairs, and access to the canonical Core dashboard — not a replacement for
+Core or MQTT Discovery entities.
 
-**Status: early / pre-1.0** (version `0.1.3`). Behaviour and dashboard layout may change before 1.0.
+**Status: pre-1.0 / HACS-ready** (version `0.1.14`). Behaviour may change before 1.0.
+
+## Install paths
+
+| Path | What you get |
+|------|----------------|
+| **Docker / Core** | Run [ThreadLens Core](https://github.com/theaussiepom/threadlens) separately. Open the full dashboard directly at your Core URL (recommended for `0.2.0+`). |
+| **HACS (this repo)** | Connect Home Assistant to Core. Native companion panel, entities, diagnostics, repairs, and **Open full ThreadLens dashboard**. Optional iframe is off by default. |
+| **HAOS add-on** | [ThreadLens HAOS add-on](https://github.com/theaussiepom/threadlens-ha-addon) exposes the Core dashboard through Home Assistant Ingress. Live HAOS Ingress validation may still be pending — check the add-on repository before production use. |
+
+Reverse proxy or HTTPS Core is **optional** for a useful HACS experience. Iframe embedding is **not**
+required and **not** the default.
 
 ## What this integration does
 
-- Connects to a running ThreadLens Core REST API
-- Adds a **ThreadLens** sidebar panel with an out-of-the-box dashboard for Thread / Matter / OTBR /
-  mDNS / TREL health — no manual Lovelace YAML or custom cards required
+- Connects to a running ThreadLens Core REST API (`0.2.0+` recommended)
+- Adds a **ThreadLens** sidebar **native companion panel** for Thread / Matter / OTBR / mDNS / TREL status
+- Provides a prominent **Open full ThreadLens dashboard** button (Core canonical UI in a new tab)
+- Optionally embeds the Core dashboard in the sidebar when `embed_dashboard` is enabled and browser security allows it
 - Shows a **network incident summary** (OK / Watch / Incident) so you can tell at a glance whether a
   Matter-over-Thread problem looks device-local or network-wide
 - Surfaces **at-a-glance Matter node health** (Unavailable / Recently unstable / Healthy / Unknown),
@@ -104,10 +116,11 @@ If Home Assistant is served over **HTTPS** and ThreadLens Core is **HTTP**, brow
 content. The panel keeps the native companion view and shows a calm note instead of a broken iframe.
 Reverse proxy or HTTPS Core is optional for advanced users, not required for basic HACS value.
 
-For Home Assistant OS users, the **HAOS add-on Ingress** path is the embedded full-dashboard
-experience. Docker users can open Core directly.
+For Home Assistant OS users, the **HAOS add-on Ingress** path is the intended embedded full-dashboard
+experience. Live HAOS Ingress validation may still be pending — see the add-on repository status.
+Docker users should open Core directly.
 
-## Where to find the dashboard
+## Where to find the companion panel
 
 After adding the integration, look for **ThreadLens** in the Home Assistant left sidebar (icon
 `mdi:access-point-network`). The panel registers on setup — a restart is only required after the
@@ -135,9 +148,10 @@ instead of **Matter node health**), do all of the following:
 
 The panel header also reminds you to hard-refresh after HACS updates.
 
-## The ThreadLens dashboard
+## The native companion panel
 
-The dashboard shows:
+The sidebar panel is a **native companion/status view**, not a duplicate of the Core React dashboard.
+It shows:
 
 - **Header** — API connected/disconnected state, ThreadLens Core version, last refresh, refresh button
 - **Network incident summary** — OK / Watch / Incident assessment
@@ -167,10 +181,8 @@ It does not claim a root cause.
 
 ## Screenshots
 
-> Screenshots are not available yet. Placeholders:
->
-> - `docs/dashboard-overview.png` — header + overall health + summary cards
-> - `docs/dashboard-otbr.png` — OTBR section with a REST endpoint mismatch warning
+Screenshots are not included yet. See [docs/screenshots/README.md](docs/screenshots/README.md) for the
+recommended capture list before a public release.
 
 ## Entities created by this integration
 
@@ -197,7 +209,10 @@ Secondary helper entities only — useful for automations, not required for the 
 
 ## Dashboard architecture
 
-- Backend: config flow, REST API client, data update coordinator
+- **Core** owns the canonical full dashboard (`/`, `GET /api/v1/dashboard`)
+- **HACS** provides native companion/status, entities, diagnostics, repairs, and access
+- **Optional iframe** is opt-in only (`embed_dashboard`, default `false`)
+- Backend: config flow, REST API client, data update coordinator, repair issues
 - Coordinator aggregates `/api/v1/version`, `/status`, `/health`, `/otbrs`, `/networks`,
   `/matter-servers`, `/matter-nodes`, `/mdns/services`, and `/trel/services`
 - Websocket command `threadlens/dashboard` serves the aggregated payload

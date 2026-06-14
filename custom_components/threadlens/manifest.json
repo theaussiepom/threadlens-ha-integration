@@ -1,6 +1,7 @@
 {
   "domain": "threadlens",
   "name": "ThreadLens",
+  "after_dependencies": ["matter"],
   "codeowners": ["@theaussiepom"],
   "config_flow": true,
   "dependencies": ["http", "websocket_api", "frontend", "panel_custom"],
@@ -9,6 +10,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/theaussiepom/threadlens-ha-integration/issues",
   "requirements": ["aiohttp>=3.9"],
-  "version": "0.1.13",
-  "single_config_entry": true
+  "single_config_entry": true,
+  "version": "0.1.14"
 }
