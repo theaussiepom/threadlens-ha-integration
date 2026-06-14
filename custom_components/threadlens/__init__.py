@@ -6,22 +6,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DOMAIN
-from .coordinator import ThreadLensCoordinator, build_coordinator
-from .frontend import async_register_frontend, async_unregister_frontend
+from .const import CONF_PANEL_ENABLED, DEFAULT_PANEL_ENABLED, DOMAIN
+from .coordinator import build_coordinator
+from .panel import async_register_panel, async_unregister_panel, async_update_panel_core_url
 from .repairs import async_update_connection_repairs
 from .report_view import async_register_http_views
 from .websocket import async_register_websocket_commands
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
-
-
-def _has_other_entries(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    return any(
-        isinstance(value, ThreadLensCoordinator)
-        for key, value in hass.data.get(DOMAIN, {}).items()
-        if key != entry.entry_id
-    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -40,7 +32,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async_register_websocket_commands(hass)
     async_register_http_views(hass)
-    await async_register_frontend(hass)
+
+    if entry.data.get(CONF_PANEL_ENABLED, DEFAULT_PANEL_ENABLED):
+        await async_register_panel(hass, entry.entry_id, coordinator.api.base_url)
+    else:
+        async_update_panel_core_url(hass, coordinator.api.base_url)
+
     return True
 
 
@@ -49,12 +46,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        if not _has_other_entries(hass, entry):
-            async_unregister_frontend(hass)
+        if entry.data.get(CONF_PANEL_ENABLED, DEFAULT_PANEL_ENABLED):
+            await async_unregister_panel(hass, entry.entry_id)
     return unload_ok
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Reload config entry."""
     await async_unload_entry(hass, entry)
     await async_setup_entry(hass, entry)

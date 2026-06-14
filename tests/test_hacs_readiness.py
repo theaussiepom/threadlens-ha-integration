@@ -43,7 +43,8 @@ def test_translations_include_options_and_repairs() -> None:
     translations = json.loads(
         (INTEGRATION_DIR / "translations" / "en.json").read_text(encoding="utf-8")
     )
-    assert "embed_dashboard" in translations["options"]["step"]["init"]["data"]
+    assert "panel_enabled" in translations["options"]["step"]["init"]["data"]
+    assert "verify_ssl" in translations["options"]["step"]["init"]["data"]
     assert "api_disconnected" in translations["issues"]
 
 

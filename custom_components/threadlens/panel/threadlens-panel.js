@@ -1,13 +1,41 @@
 /**
- * ThreadLens dashboard panel.
+ * ThreadLens companion panel (native Home Assistant custom panel).
  *
- * A dependency-free custom element. It fetches a pre-aggregated payload from
- * the Home Assistant backend over the authenticated websocket connection
- * (`threadlens/dashboard`) and never talks to ThreadLens Core directly, so
- * there are no CORS or local-network auth issues.
+ * Default view: redacted status summary over the HA websocket (no direct Core fetch).
+ * When browser security allows (matching HTTP/HTTPS scheme), opens the full Core UI
+ * automatically instead of the native summary screen.
+ *
+ * Primary action: Open Full Dashboard (new tab — always reliable).
+ * Secondary action: Try Embedded View (when mixed-content blocks auto-embed).
  */
 
-const REFRESH_INTERVAL_MS = 30000;
+const SEVERITY = {
+  ok: { label: "Healthy", color: "var(--success-color, #2e7d32)" },
+  watch: { label: "Watch", color: "var(--warning-color, #f9a825)" },
+  incident: { label: "Incident", color: "var(--error-color, #c62828)" },
+  unknown: { label: "No signal", color: "var(--secondary-text-color, #888)" },
+};
+
+/** @returns {{ canEmbed: boolean, reason?: string }} */
+function canEmbedDashboard(haProtocol, coreUrl, baseHref) {
+  try {
+    const ha = String(haProtocol || "").toLowerCase();
+    if (!ha.endsWith(":")) {
+      return { canEmbed: false, reason: "invalid_ha" };
+    }
+    if (!coreUrl || !String(coreUrl).trim()) {
+      return { canEmbed: false, reason: "missing_core_url" };
+    }
+    const core = new URL(String(coreUrl).trim(), baseHref || window.location.href);
+    if (!core.protocol || !core.host) {
+      return { canEmbed: false, reason: "invalid_core_url" };
+    }
+    const isMixedContentIframe = ha === "https:" && core.protocol === "http:";
+    return { canEmbed: !isMixedContentIframe };
+  } catch {
+    return { canEmbed: false, reason: "invalid_core_url" };
+  }
+}
 
 function esc(value) {
   if (value === null || value === undefined) return "";
@@ -15,937 +43,624 @@ function esc(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-function healthClass(state) {
-  switch (state) {
-    case "healthy":
-      return "tl-ok";
-    case "warning":
-      return "tl-warn";
-    case "degraded":
-      return "tl-degraded";
-    case "critical":
-      return "tl-critical";
-    default:
-      return "tl-unknown";
-  }
-}
-
-function badge(state) {
-  const text = state || "unknown";
-  return `<span class="tl-badge ${healthClass(text)}">${esc(text)}</span>`;
-}
-
-const NODE_CLASS_META = {
-  unavailable: { label: "Unavailable", cls: "tl-critical" },
-  recently_unstable: { label: "Recently unstable", cls: "tl-warn" },
-  healthy: { label: "Healthy", cls: "tl-ok" },
-  unknown: { label: "Unknown", cls: "tl-unknown" },
-};
-
-function nodeBadge(classification) {
-  const meta = NODE_CLASS_META[classification] || NODE_CLASS_META.unknown;
-  return `<span class="tl-badge ${meta.cls}">${esc(meta.label)}</span>`;
-}
-
-const INCIDENT_META = {
-  ok: { label: "OK", cls: "tl-ok" },
-  watch: { label: "Watch", cls: "tl-warn" },
-  incident: { label: "Incident", cls: "tl-critical" },
-  unknown: { label: "Unknown", cls: "tl-unknown" },
-};
-
-function boolText(value, onText, offText) {
-  if (value === null || value === undefined) return "—";
-  return value ? onText : offText;
-}
-
-function fmtTime(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
-}
-
-function fmtDuration(seconds) {
-  if (seconds === null || seconds === undefined) return "—";
-  const value = Number(seconds);
-  if (Number.isNaN(value) || value < 0) return "—";
-  if (value < 60) return `${Math.round(value)}s`;
-  if (value < 3600) return `${Math.round(value / 60)}m`;
-  return `${(value / 3600).toFixed(1)}h`;
+function relativeTime(iso) {
+  if (!iso) return "unknown";
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "unknown";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds} seconds ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 class ThreadLensPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._hass = null;
-    this._data = null;
-    this._error = null;
-    this._loading = false;
-    this._lastFetch = null;
-    this._initialized = false;
-    this._timer = null;
-    this._selectedNodeId = null;
+    this._summary = null;
+    this._loading = true;
+    this._loaded = false;
+    this._copied = false;
+    this._configCoreUrl = "";
+    this._view = "summary";
+  }
+
+  set panel(panel) {
+    this._configCoreUrl = (panel && panel.config && panel.config.core_url) || "";
   }
 
   set hass(hass) {
+    const first = !this._hass;
     this._hass = hass;
-    if (!this._initialized) {
-      this._initialized = true;
-      this._render();
-      this._fetch();
-      return;
+    if (first && !this._loaded) {
+      this._loadSummary();
     }
-    if (!this._data) {
-      this._fetch();
-    }
-  }
-
-  get hass() {
-    return this._hass;
   }
 
   connectedCallback() {
-    if (this._timer) clearInterval(this._timer);
-    this._timer = setInterval(() => this._fetch(), REFRESH_INTERVAL_MS);
-    if (this._hass) this._fetch();
+    this._render();
   }
 
-  disconnectedCallback() {
-    if (this._timer) clearInterval(this._timer);
-    this._timer = null;
-  }
-
-  async _fetch() {
-    if (!this._hass) return;
+  async _loadSummary() {
     this._loading = true;
-    this._update();
+    this._render();
     try {
-      const result = await this._hass.callWS({ type: "threadlens/dashboard" });
-      if (result && result.threadlens) {
-        this._data = result;
-        this._error = result.error || null;
-      } else {
-        this._data = null;
-        this._error =
-          (result && result.error) || "Invalid ThreadLens dashboard response from Home Assistant";
-      }
+      this._summary = await this._hass.callWS({ type: "threadlens/panel_summary" });
     } catch (err) {
-      this._data = null;
-      this._error = (err && (err.message || err.code)) || "Failed to load ThreadLens data";
+      this._summary = {
+        connected: false,
+        core_url: this._configCoreUrl,
+        error: (err && err.message) || "Could not reach the ThreadLens integration.",
+        networks: [],
+      };
     }
     this._loading = false;
-    this._lastFetch = new Date();
-    this._update();
+    this._loaded = true;
+
+    const coreUrl = this._coreUrl();
+    const { canEmbed } = canEmbedDashboard(
+      window.location.protocol,
+      coreUrl,
+      window.location.href
+    );
+    if (canEmbed && coreUrl) {
+      this._view = "embedded";
+    }
+
+    this._render();
+  }
+
+  _coreUrl() {
+    return (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+  }
+
+  _openDashboardButton(coreUrl, extraClass = "") {
+    if (!coreUrl) return "";
+    return `<a class="btn primary ${extraClass}" href="${esc(coreUrl)}" target="_blank" rel="noopener noreferrer">
+      Open full ThreadLens dashboard
+    </a>`;
+  }
+
+  _tryEmbedButton() {
+    return `<button type="button" class="btn secondary" id="try-embed">Try Embedded View</button>`;
+  }
+
+  _ctaRow(coreUrl, { includeEmbed = true } = {}) {
+    const open = this._openDashboardButton(coreUrl);
+    const embed = includeEmbed && coreUrl ? this._tryEmbedButton() : "";
+    if (!open && !embed) return "";
+    return `<div class="cta-row">${open}${embed}</div>`;
+  }
+
+  _backButton() {
+    return `<button type="button" class="btn" id="back-summary">Back to Summary</button>`;
+  }
+
+  _tryEmbeddedView() {
+    const coreUrl = this._coreUrl();
+    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl, window.location.href);
+    this._view = canEmbed ? "embedded" : "embed_blocked";
+    this._render();
+  }
+
+  _backToSummary() {
+    this._view = "summary";
+    this._render();
   }
 
   _render() {
-    this.shadowRoot.innerHTML = `<style>${this._styles()}</style><div class="tl-root"></div>`;
-    this._update();
-  }
+    const coreUrl = this._coreUrl();
 
-  _update() {
-    if (!this.shadowRoot) return;
-    const root = this.shadowRoot.querySelector(".tl-root");
-    if (!root) return;
-    root.innerHTML = this._content();
-
-    const refresh = root.querySelector("#tl-refresh");
-    if (refresh) refresh.addEventListener("click", () => this._fetch());
-
-    const copy = root.querySelector("#tl-copy-report");
-    if (copy) {
-      copy.addEventListener("click", () => {
-        const url = copy.getAttribute("data-url");
-        if (url && navigator.clipboard) navigator.clipboard.writeText(url);
-      });
-    }
-
-    const openReport = root.querySelector("#tl-open-report");
-    if (openReport) {
-      openReport.addEventListener("click", () =>
-        this._openReport(openReport.getAttribute("data-proxy"))
-      );
-    }
-
-    root.querySelectorAll("[data-node-id]").forEach((el) => {
-      el.addEventListener("click", () => {
-        this._selectedNodeId = el.getAttribute("data-node-id");
-        this._update();
-      });
-    });
-
-    const back = root.querySelector("#tl-node-back");
-    if (back) {
-      back.addEventListener("click", () => {
-        this._selectedNodeId = null;
-        this._update();
-      });
-    }
-  }
-
-  async _openReport(proxyUrl) {
-    if (!proxyUrl) return;
-    // Sign the path so the new tab carries Home Assistant auth without a token.
-    try {
-      const signed = await this._hass.callWS({
-        type: "auth/sign_path",
-        path: proxyUrl,
-        expires: 60,
-      });
-      const target = (signed && signed.path) || proxyUrl;
-      window.open(target, "_blank", "noopener");
-    } catch (err) {
-      window.open(proxyUrl, "_blank", "noopener");
-    }
-  }
-
-  _content() {
-    const d = this._data;
-    const tl = (d && d.threadlens) || {};
-    const connected = tl.api_connected;
-    const lastFetch = this._lastFetch
-      ? this._lastFetch.toLocaleTimeString()
-      : "—";
-
-    const header = `
-      <div class="tl-header">
-        <div class="tl-title">
-          <ha-icon icon="mdi:access-point-network"></ha-icon>
-          <h1>ThreadLens</h1>
+    if (this._view === "embedded") {
+      this.shadowRoot.innerHTML = `
+        <style>${ThreadLensPanel.styles}</style>
+        <div class="wrap embed-wrap">
+          ${this._embeddedView(coreUrl)}
         </div>
-        <div class="tl-header-meta">
-          <span class="tl-badge ${connected ? "tl-ok" : "tl-critical"}">
-            ${connected ? "API connected" : "API disconnected"}
-          </span>
-          <span class="tl-muted">v${esc(tl.version || "?")}</span>
-          <span class="tl-muted">Updated ${esc(lastFetch)}</span>
-          <span class="tl-muted tl-hint">After HACS updates, hard-refresh (Cmd+Shift+R)</span>
-          <button id="tl-refresh" class="tl-btn" ${this._loading ? "disabled" : ""}>
-            ${this._loading ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-      </div>`;
-
-    if (!d) {
-      if (this._error) {
-        return (
-          header +
-          `<div class="tl-card tl-error">
-            <h2>ThreadLens panel unavailable</h2>
-            <p>${esc(this._error)}</p>
-            <p class="tl-muted">Try Reload on the ThreadLens integration, then refresh this panel. Check Home Assistant logs for <code>threadlens</code> errors.</p>
-          </div>`
-        );
-      }
-      return header + `<div class="tl-card"><p class="tl-muted">Loading ThreadLens data…</p></div>`;
+      `;
+      this._wire();
+      return;
     }
 
-    if (!connected) {
-      const message = this._error || "Cannot reach the ThreadLens API";
-      return (
-        header +
-        this._companionAccessSection(d.panel || {}) +
-        `<div class="tl-card tl-error">
-          <h2>ThreadLens API unavailable</h2>
-          <p>${esc(message)}</p>
-          <p class="tl-muted">The integration backend may be connected while the dashboard payload is unavailable. Reload ThreadLens under Settings → Devices & services, then refresh.</p>
-        </div>` +
-        this._summaryCards(d) +
-        this._diagnosticsSection(d)
-      );
+    if (this._view === "embed_blocked") {
+      this.shadowRoot.innerHTML = `
+        <style>${ThreadLensPanel.styles}</style>
+        <div class="wrap">
+          ${this._embedBlockedView(coreUrl)}
+        </div>
+      `;
+      this._wire();
+      return;
     }
 
-    const matter = d.matter || {};
-    if (this._selectedNodeId) {
-      const node = (matter.nodes || []).find(
-        (n) => String(n.node_id) === String(this._selectedNodeId)
-      );
-      if (node) {
-        return header + this._nodeDetailView(node, d);
-      }
-      this._selectedNodeId = null;
-    }
+    const s = this._summary || {};
+    const connected = !!s.connected;
 
-    return (
-      header +
-      this._companionAccessSection(d.panel || {}) +
-      this._incidentCard(d) +
-      this._overallCard(tl) +
-      this._summaryCards(d) +
-      this._matterNodeHealth(matter) +
-      this._otbrSection(d.otbrs || []) +
-      this._matterSection(matter) +
-      this._mdnsTrelSection(d.mdns || {}, d.trel || {}) +
-      this._reportSection(d.report || {}) +
-      this._diagnosticsSection(d)
-    );
-  }
-
-  _companionAccessSection(panel) {
-    const coreUrl = panel.core_url || "";
-    const openButton = coreUrl
-      ? `<a class="tl-btn tl-btn-primary" href="${esc(coreUrl)}" target="_blank" rel="noopener noreferrer">Open full ThreadLens dashboard</a>`
-      : `<p class="tl-muted">Configure the ThreadLens Core URL in integration settings to open the full dashboard.</p>`;
-
-    let note = "";
-    if (panel.embed_dashboard && panel.show_embedded_dashboard) {
-      note = `<p class="tl-muted">Embedded dashboard is enabled below. The native companion panel remains available for status and diagnostics.</p>`;
-    } else if (panel.embed_dashboard && panel.iframe_blocked_reason) {
-      note = `<div class="tl-info-banner"><p class="tl-info-text">${esc(panel.iframe_blocked_reason)}</p></div>`;
-    } else if (!panel.embed_dashboard) {
-      note = `<p class="tl-muted">Optional embedded dashboard is off. Enable it in ThreadLens integration options if your browser and security setup allow iframe embedding.</p>`;
-    }
-
-    const iframe =
-      panel.show_embedded_dashboard && coreUrl
-        ? `<div class="tl-iframe-wrap">
-            <iframe
-              class="tl-dashboard-iframe"
-              src="${esc(coreUrl)}"
-              title="ThreadLens Core dashboard"
-              loading="lazy"
-            ></iframe>
-          </div>`
-        : "";
-
-    return `
-      <div class="tl-card tl-companion-access">
-        <h2>Full dashboard access</h2>
-        <div class="tl-btn-row">${openButton}</div>
-        ${note}
-        ${iframe}
-      </div>`;
-  }
-
-  _incidentCard(d) {
-    const incident = d.incident || {};
-    const meta = INCIDENT_META[incident.state] || INCIDENT_META.unknown;
-    const affected = incident.affected_node_names || [];
-    const affectedLine = affected.length
-      ? `<p class="tl-info-text">Affected nodes: ${esc(affected.join(", "))}</p>`
-      : "";
-    return `
-      <div class="tl-card tl-incident tl-incident-${esc(incident.state || "unknown")}">
-        <div class="tl-incident-head">
-          <h2>Network incident summary</h2>
-          <span class="tl-badge ${meta.cls}">${esc(meta.label)}</span>
-        </div>
-        <p class="tl-incident-headline">${esc(incident.headline || "")}</p>
-        <p class="tl-info-text">${esc(incident.detail || "")}</p>
-        ${affectedLine}
-      </div>`;
-  }
-
-  _matterNodeHealth(matter) {
-    const nodes = matter.nodes || [];
-    if (!nodes.length) {
-      return `<div class="tl-card"><h2>Matter nodes</h2><p class="tl-muted">No Matter nodes reported.</p></div>`;
-    }
-    const groupsOrder = [
-      ["unavailable", "Needs attention"],
-      ["recently_unstable", "Recently unstable"],
-      ["unknown", "Unknown"],
-      ["healthy", "Healthy"],
-    ];
-    const grouped = {};
-    nodes.forEach((n) => {
-      (grouped[n.classification] = grouped[n.classification] || []).push(n);
-    });
-    const sections = groupsOrder
-      .filter(([key]) => (grouped[key] || []).length)
-      .map(([key, title]) => {
-        const rows = grouped[key]
-          .map((n) => this._nodeRow(n))
-          .join("");
-        return `<div class="tl-node-group"><div class="tl-node-group-title">${esc(title)} (${grouped[key].length})</div>${rows}</div>`;
-      })
-      .join("");
-    return `
-      <div class="tl-card">
-        <h2>Matter node health</h2>
-        <div class="tl-node-counts">
-          <span>${esc(matter.unavailable_count || 0)} unavailable</span>
-          <span>${esc(matter.unstable_count || 0)} unstable</span>
-          <span>${esc(matter.healthy_count || 0)} healthy</span>
-          <span>${esc(matter.unknown_count || 0)} unknown</span>
-        </div>
-        ${sections}
-        <p class="tl-muted tl-note">Click a row (or View) to inspect recent events and assessment.</p>
-      </div>`;
-  }
-
-  _availabilityLine(n) {
-    const down = n.unsubscribe_count_24h || 0;
-    const up = n.resubscribe_count_24h || 0;
-    const episodes = n.offline_episodes_24h || 0;
-    const episodeLabel = episodes === 1 ? "episode" : "episodes";
-    return `<span class="tl-muted">${esc(down)} down / ${esc(up)} up · ${esc(episodes)} ${episodeLabel} (24h)</span>`;
-  }
-
-  _nodeRow(n) {
-    const sub = [n.vendor, n.product].filter(Boolean).join(" · ");
-    const secondary = [];
-    if (n.matter_name && n.matter_name !== n.name) {
-      secondary.push(n.matter_name);
-    }
-    if (n.serial && n.serial !== n.matter_name) {
-      secondary.push(n.serial);
-    }
-    secondary.push(`#${n.node_id}`);
-    if (sub) secondary.push(sub);
-    const availabilityLine = this._availabilityLine(n);
-    return `
-      <div class="tl-node-row" data-node-id="${esc(n.node_id)}" role="button" tabindex="0" title="View node details">
-        <div class="tl-node-row-main">
-          <strong>${esc(n.name)}</strong>
-          <span class="tl-muted">${esc(secondary.join(" · "))}</span>
-          <div>${availabilityLine}</div>
-        </div>
-        <div class="tl-node-row-meta">
-          <span class="tl-node-view">View</span>
-          ${nodeBadge(n.classification)}
-        </div>
-      </div>`;
-  }
-
-  _nodeDetailView(node, d) {
-    const events = (d.events && d.events.items) || [];
-    const subjectId = node.subject_id;
-    const nodeEvents = events.filter((e) => e.subject_id === subjectId);
-    const detail = this._nodeAssessment(node, d);
-    const eventRows = nodeEvents.length
-      ? nodeEvents
-          .map(
-            (e) => `
-            <div class="tl-event-row">
-              <span class="tl-muted">${esc(fmtTime(e.timestamp))}</span>
-              <span>${esc(e.event_type)}</span>
-              <span class="tl-muted">${esc(e.severity || "")}</span>
-            </div>`
-          )
-          .join("")
-      : `<p class="tl-muted">No recent events for this node in the current window.</p>`;
-    const sub = [node.vendor, node.product].filter(Boolean).join(" · ");
-    const matterLine =
-      node.matter_name && node.matter_name !== node.name
-        ? `<p class="tl-muted">Matter name: ${esc(node.matter_name)}</p>`
-        : "";
-    return `
-      <div class="tl-card">
-        <div class="tl-subcard-head">
-          <button id="tl-node-back" class="tl-btn tl-btn-secondary">← Back</button>
-          ${nodeBadge(node.classification)}
-        </div>
-        <h2>${esc(node.name)} <span class="tl-muted">#${esc(node.node_id)}</span></h2>
-        ${matterLine}
-        ${sub ? `<p class="tl-muted">${esc(sub)}</p>` : ""}
-        <div class="tl-kv">
-          <span>Availability</span><span>${boolText(node.available, "Available", "Unavailable")}</span>
-          <span>Server</span><span>${esc(node.server_id || "—")}</span>
-          <span>Last seen</span><span>${esc(fmtTime(node.last_seen))}</span>
-          <span>Last unavailable</span><span>${esc(node.last_unavailable ? fmtTime(node.last_unavailable) : "—")}</span>
-          <span>Unavailable transitions (24h)</span><span>${esc(node.unsubscribe_count_24h || 0)}</span>
-          <span>Resubscribe / recovered (24h)</span><span>${esc(node.resubscribe_count_24h || 0)}</span>
-          <span>Median offline (24h)</span><span>${esc(fmtDuration(node.median_offline_seconds_24h))}</span>
-          <span>Total offline (24h)</span><span>${esc(fmtDuration(node.total_offline_seconds_24h || 0))}</span>
-          <span>Offline episodes (24h)</span><span>${esc(node.offline_episodes_24h || 0)}</span>
-          <span>Availability flaps (24h)</span><span>${esc(node.availability_flaps_24h ?? "—")}</span>
-          <span>Recent down / up (events)</span><span>${esc(node.recent_unavailable_count || 0)} / ${esc(node.recent_recovered_count || 0)}</span>
-        </div>
+    this.shadowRoot.innerHTML = `
+      <style>${ThreadLensPanel.styles}</style>
+      <div class="wrap">
+        ${this._heroCard(s, coreUrl, connected)}
+        ${this._loading ? this._loadingCard() : ""}
+        ${!this._loading && !connected ? this._disconnectedCard(s, coreUrl) : ""}
+        ${!this._loading && connected ? this._findingCard(s) : ""}
+        ${!this._loading && connected ? this._statsCard(s) : ""}
+        ${!this._loading && connected ? this._networksCard(s) : ""}
+        ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
+        <p class="note">
+          The native panel works for all installs. Open Full Dashboard opens the full
+          dashboard in a new tab. When Home Assistant and ThreadLens Core use the same
+          protocol (both HTTP or both HTTPS), the full dashboard opens here automatically.
+        </p>
       </div>
-      <div class="tl-card">
-        <h2>What this suggests</h2>
-        <p class="tl-info-text">${esc(detail.assessment)}</p>
-      </div>
-      <div class="tl-card">
-        <h2>Recent events</h2>
-        ${eventRows}
-      </div>`;
-  }
-
-  _nodeAssessment(node, d) {
-    const events = (d.events && d.events.items) || [];
-    const matter = d.matter || {};
-    const nodes = matter.nodes || [];
-    const thisUnstable =
-      (node.recent_unavailable_count || 0) || (node.recent_recovered_count || 0);
-    const otherUnstable = nodes.filter(
-      (n) =>
-        n.subject_id !== node.subject_id &&
-        ((n.recent_unavailable_count || 0) || (n.recent_recovered_count || 0))
-    );
-    const infraEvents = events.filter((e) =>
-      ["matter_server.disconnected", "otbr.unreachable", "thread_network.lost"].includes(
-        e.event_type
-      )
-    );
-    const nodeEvents = events.filter((e) => e.subject_id === node.subject_id);
-    if (!nodeEvents.length && !thisUnstable) {
-      return {
-        assessment:
-          "There is not enough recent event history to classify this as device-local or network-wide.",
-      };
-    }
-    if (otherUnstable.length) {
-      return {
-        assessment:
-          "Multiple Matter nodes changed state around the same time. This may indicate a wider Matter/Thread network issue.",
-      };
-    }
-    if (infraEvents.length) {
-      return {
-        assessment:
-          "Infrastructure events were observed near this node change. Review OTBR, Matter server, mDNS, and TREL sections.",
-      };
-    }
-    if (thisUnstable) {
-      return {
-        assessment:
-          "This looks isolated to this node. ThreadLens does not see a wider Matter/Thread infrastructure issue at the same time.",
-      };
-    }
-    return {
-      assessment:
-        "There is not enough recent event history to classify this as device-local or network-wide.",
-    };
-  }
-
-  _overallCard(tl) {
-    return `
-      <div class="tl-card">
-        <div class="tl-overall">
-          <div>
-            <div class="tl-label">Overall health</div>
-            ${badge(tl.overall_health)}
-          </div>
-          <div>
-            <div class="tl-label">Environment</div>
-            ${badge(tl.environment_health)}
-          </div>
-        </div>
-      </div>`;
-  }
-
-  _summaryCards(d) {
-    const matter = d.matter || {};
-    const mdns = d.mdns || {};
-    const trel = d.trel || {};
-    const mqtt = d.mqtt;
-    const cards = [
-      { label: "OTBRs", value: (d.otbrs || []).length, sub: "" },
-      { label: "Thread networks", value: (d.networks || []).length, sub: "" },
-      {
-        label: "Matter nodes",
-        value: matter.node_count || 0,
-        sub: matter.unavailable_count
-          ? `${matter.unavailable_count} unavailable`
-          : "",
-      },
-      { label: "mDNS services", value: mdns.service_count || 0, sub: "" },
-      {
-        label: "TREL services",
-        value: trel.service_count || 0,
-        sub: trel.foreign_service_count
-          ? `${trel.foreign_service_count} foreign`
-          : "",
-      },
-      {
-        label: "MQTT publishing",
-        value: mqtt ? boolText(mqtt.connected, "On", "Off") : "—",
-        sub: mqtt && mqtt.homeassistant_discovery_enabled ? "Discovery on" : "",
-      },
-    ];
-    const inner = cards
-      .map(
-        (c) => `
-        <div class="tl-summary">
-          <div class="tl-summary-value">${esc(c.value)}</div>
-          <div class="tl-summary-label">${esc(c.label)}</div>
-          ${c.sub ? `<div class="tl-muted tl-summary-sub">${esc(c.sub)}</div>` : ""}
-        </div>`
-      )
-      .join("");
-    return `<div class="tl-summary-grid">${inner}</div>`;
-  }
-
-  _otbrSection(otbrs) {
-    if (!otbrs.length) {
-      return `<div class="tl-card"><h2>OTBRs</h2><p class="tl-muted">No OTBRs reported.</p></div>`;
-    }
-    const items = otbrs
-      .map((o) => {
-        const displayHealth = o.display_health || o.health;
-        const effectiveState = o.effective_state || o.role || o.thread_state || "—";
-        const sourceLabel = o.state_source_label || o.thread_state_source || "—";
-        const mismatchDetails =
-          o.rest_endpoint_mismatch && o.mismatch_detail
-            ? `<details class="tl-details tl-advanced">
-                <summary>Endpoint details</summary>
-                <p class="tl-info-text">${esc(o.mismatch_detail)}</p>
-                <div class="tl-kv tl-kv-compact">
-                  <span>JSON:API state</span><span>${esc(o.json_api_thread_state || "—")}</span>
-                  <span>/node state</span><span>${esc(o.legacy_node_thread_state || "—")}</span>
-                </div>
-              </details>`
-            : "";
-        const prominentWarn =
-          o.rest_endpoint_mismatch && !o.mismatch_reconciled
-            ? `<div class="tl-inline-warn">OTBR REST endpoints disagree and ThreadLens could not reconcile an active state.</div>`
-            : "";
-        return `
-        <div class="tl-subcard">
-          <div class="tl-subcard-head">
-            <strong>${esc(o.name || o.id)}</strong>
-            ${badge(displayHealth)}
-          </div>
-          <div class="tl-kv">
-            <span>Reachable</span><span>${boolText(o.reachable, "Yes", "No")}</span>
-            <span>Effective state</span><span>${esc(effectiveState)}</span>
-            <span>Source</span><span>${esc(sourceLabel)}</span>
-            <span>Network</span><span>${esc(o.network_name || "—")}</span>
-            <span>RLOC16</span><span>${esc(o.rloc16 || "—")}</span>
-          </div>
-          ${prominentWarn}
-          ${mismatchDetails}
-        </div>`;
-      })
-      .join("");
-    return `<div class="tl-card"><h2>OTBRs</h2>${items}</div>`;
-  }
-
-  _matterSection(matter) {
-    return `
-      <div class="tl-card">
-        <h2>Matter servers ${badge(matter.health)}</h2>
-        <div class="tl-kv">
-          <span>Servers connected</span><span>${esc(matter.servers_connected || 0)} / ${esc(matter.servers || 0)}</span>
-          <span>Total nodes</span><span>${esc(matter.node_count || 0)}</span>
-          <span>Recent down / up (24h)</span><span>${esc(matter.recent_unavailable_count || 0)} / ${esc(matter.recent_recovered_count || 0)}</span>
-        </div>
-      </div>`;
-  }
-
-  _mdnsTrelSection(mdns, trel) {
-    const types = (mdns.top_service_types || [])
-      .map((t) => `<span class="tl-chip">${esc(t.service_type)} (${esc(t.count)})</span>`)
-      .join("");
-    const foreignNote =
-      trel.foreign_service_count && trel.informational
-        ? `<div class="tl-info-banner">
-            <strong>Other Thread/TREL services visible: ${esc(trel.foreign_service_count)}</strong>
-            <p class="tl-info-text">This is common when HomePods, Apple TVs, Nest devices, or other Thread fabrics are on the LAN. ThreadLens does not treat this as a fault by itself.</p>
-          </div>`
-        : "";
-    return `
-      <div class="tl-card">
-        <h2>mDNS / TREL</h2>
-        <div class="tl-kv">
-          <span>mDNS health</span><span>${badge(mdns.health)}</span>
-          <span>mDNS services</span><span>${esc(mdns.service_count || 0)}</span>
-          <span>Observation degraded</span><span>${boolText(mdns.observation_degraded, "Yes", "No")}</span>
-          <span>TREL health</span><span>${badge(trel.health)}</span>
-          <span>TREL services</span><span>${esc(trel.service_count || 0)}</span>
-          <span>Foreign TREL</span><span>${esc(trel.foreign_service_count || 0)}</span>
-        </div>
-        ${foreignNote}
-        ${types ? `<div class="tl-chips">${types}</div>` : ""}
-        <p class="tl-muted tl-note">TREL visibility is observation only and does not imply device parentage.</p>
-      </div>`;
-  }
-
-  _reportSection(report) {
-    const proxy = report.report_proxy_url;
-    const url = report.report_url;
-    if (!proxy && !url) {
-      return `<div class="tl-card"><h2>Report</h2><p class="tl-muted">Report URL unavailable.</p></div>`;
-    }
-    const generated = report.last_generated_at || "never";
-    const openBtn = proxy
-      ? `<button id="tl-open-report" class="tl-btn" data-proxy="${esc(proxy)}">Open report YAML</button>`
-      : "";
-    const copyBtn = url
-      ? `<button id="tl-copy-report" class="tl-btn tl-btn-secondary" data-url="${esc(url)}">Copy report URL</button>`
-      : "";
-    return `
-      <div class="tl-card">
-        <h2>Report</h2>
-        <p class="tl-muted">Last generated: ${esc(generated)}</p>
-        <div class="tl-btn-row">
-          ${openBtn}
-          ${copyBtn}
-        </div>
-        <p class="tl-muted tl-note">Opens the YAML report in a new tab via an authenticated Home Assistant proxy. Reports redact secrets but include operational metadata.</p>
-      </div>`;
-  }
-
-  _diagnosticsSection(d) {
-    const blocks = [
-      ["Overall", d.threadlens],
-      ["Incident", d.incident],
-      ["Matter", d.matter],
-      ["mDNS", d.mdns],
-      ["TREL", d.trel],
-      ["OTBRs", d.otbrs],
-      ["Networks", d.networks],
-      ["Events", d.events],
-      ["MQTT", d.mqtt],
-    ]
-      .map(
-        ([label, value]) =>
-          `<details class="tl-details"><summary>${esc(label)}</summary><pre>${esc(
-            JSON.stringify(value, null, 2)
-          )}</pre></details>`
-      )
-      .join("");
-    return `<div class="tl-card"><h2>Diagnostics</h2>${blocks}</div>`;
-  }
-
-  _styles() {
-    return `
-      :host { display: block; }
-      .tl-root {
-        padding: 16px;
-        max-width: 1100px;
-        margin: 0 auto;
-        color: var(--primary-text-color);
-        font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
-      }
-      .tl-header {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-      .tl-title { display: flex; align-items: center; gap: 8px; }
-      .tl-title h1 { font-size: 1.5rem; margin: 0; }
-      .tl-header-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-      .tl-card {
-        background: var(--card-background-color, #fff);
-        border-radius: var(--ha-card-border-radius, 12px);
-        box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,0.1));
-        padding: 16px;
-        margin-bottom: 16px;
-      }
-      .tl-card h2 { font-size: 1.1rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
-      .tl-error { border-left: 4px solid var(--error-color, #db4437); }
-      .tl-muted { color: var(--secondary-text-color); font-size: 0.9rem; }
-      .tl-note { margin-top: 8px; font-style: italic; }
-      .tl-label { font-size: 0.85rem; color: var(--secondary-text-color); margin-bottom: 4px; }
-      .tl-badge {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        text-transform: capitalize;
-        color: var(--primary-text-color, #212121);
-        border: 1px solid var(--divider-color, #bdbdbd);
-        background: var(--card-background-color, #fff);
-      }
-      .tl-ok {
-        background: color-mix(in srgb, var(--success-color, #43a047) 14%, transparent);
-        border-color: var(--success-color, #43a047);
-        color: var(--primary-text-color, #1b5e20);
-      }
-      .tl-warn {
-        background: color-mix(in srgb, var(--warning-color, #fb8c00) 16%, transparent);
-        border-color: var(--warning-color, #fb8c00);
-        color: var(--primary-text-color, #4e342e);
-      }
-      .tl-degraded {
-        background: color-mix(in srgb, #ef6c00 16%, transparent);
-        border-color: #ef6c00;
-        color: var(--primary-text-color, #4e342e);
-      }
-      .tl-critical {
-        background: color-mix(in srgb, var(--error-color, #db4437) 14%, transparent);
-        border-color: var(--error-color, #db4437);
-        color: var(--primary-text-color, #b71c1c);
-      }
-      .tl-unknown {
-        background: var(--secondary-background-color, #eeeeee);
-        border-color: var(--divider-color, #bdbdbd);
-        color: var(--secondary-text-color, #616161);
-      }
-      .tl-overall { display: flex; gap: 32px; }
-      .tl-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-      .tl-chip {
-        background: var(--card-background-color, #fff);
-        color: var(--primary-text-color, #212121);
-        border: 1px solid var(--divider-color, #bdbdbd);
-        border-radius: 12px;
-        padding: 4px 10px;
-        font-size: 0.8rem;
-        font-weight: 500;
-      }
-      .tl-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-      .tl-summary {
-        background: var(--card-background-color, #fff);
-        border-radius: var(--ha-card-border-radius, 12px);
-        box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,0.1));
-        padding: 16px;
-        text-align: center;
-      }
-      .tl-summary-value { font-size: 1.8rem; font-weight: 600; }
-      .tl-summary-label { color: var(--secondary-text-color); font-size: 0.85rem; }
-      .tl-summary-sub { margin-top: 4px; }
-      .tl-subcard {
-        border: 1px solid var(--divider-color, #e0e0e0);
-        border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 12px;
-      }
-      .tl-subcard-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-      .tl-kv {
-        display: grid;
-        grid-template-columns: max-content 1fr;
-        gap: 4px 16px;
-        font-size: 0.9rem;
-      }
-      .tl-kv span:nth-child(odd) { color: var(--secondary-text-color); }
-      .tl-inline-warn {
-        margin-top: 10px;
-        padding: 8px 10px;
-        border-radius: 6px;
-        background: color-mix(in srgb, var(--warning-color, #fb8c00) 12%, transparent);
-        border: 1px solid var(--warning-color, #fb8c00);
-        color: var(--primary-text-color, #4e342e);
-        font-size: 0.85rem;
-      }
-      .tl-info-text {
-        margin: 8px 0 0;
-        color: var(--primary-text-color, #212121);
-        font-size: 0.85rem;
-        line-height: 1.45;
-      }
-      .tl-kv-compact { margin-top: 8px; }
-      .tl-list { margin: 8px 0 0; padding-left: 18px; }
-      .tl-incident-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      .tl-incident-head h2 { margin: 0; }
-      .tl-incident-headline { font-size: 1rem; font-weight: 600; margin: 10px 0 0; }
-      .tl-incident { border-left: 4px solid var(--divider-color, #bdbdbd); }
-      .tl-incident-ok { border-left-color: var(--success-color, #43a047); }
-      .tl-incident-watch { border-left-color: var(--warning-color, #fb8c00); }
-      .tl-incident-incident { border-left-color: var(--error-color, #db4437); }
-      .tl-node-counts {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px 16px;
-        margin-bottom: 12px;
-        font-size: 0.85rem;
-        color: var(--secondary-text-color);
-      }
-      .tl-node-group { margin-bottom: 12px; }
-      .tl-node-group-title {
-        font-size: 0.8rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--secondary-text-color);
-        margin-bottom: 6px;
-      }
-      .tl-node-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 12px;
-        border: 1px solid var(--divider-color, #e0e0e0);
-        border-radius: 8px;
-        margin-bottom: 6px;
-        cursor: pointer;
-      }
-      .tl-node-row:hover { background: var(--secondary-background-color, #f5f5f5); }
-      .tl-node-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-      .tl-node-row-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-      .tl-node-view {
-        font-size: 0.8rem;
-        color: var(--primary-color, #03a9f4);
-        font-weight: 600;
-      }
-      .tl-hint { font-size: 0.8rem; font-style: italic; }
-      .tl-event-row {
-        display: grid;
-        grid-template-columns: max-content 1fr max-content;
-        gap: 12px;
-        padding: 6px 0;
-        border-bottom: 1px solid var(--divider-color, #eeeeee);
-        font-size: 0.85rem;
-      }
-      .tl-info-banner {
-        margin-top: 10px;
-        padding: 10px 12px;
-        border-radius: 8px;
-        background: var(--secondary-background-color, #f5f5f5);
-        border: 1px solid var(--divider-color, #e0e0e0);
-      }
-      .tl-btn-primary {
-        font-weight: 600;
-      }
-      .tl-companion-access h2 { margin-top: 0; }
-      .tl-iframe-wrap {
-        margin-top: 12px;
-        width: 100%;
-        max-width: 100%;
-        overflow: hidden;
-      }
-      .tl-dashboard-iframe {
-        display: block;
-        width: 100%;
-        max-width: 100%;
-        height: min(70vh, 900px);
-        min-height: 320px;
-        border: 1px solid var(--divider-color, #bdbdbd);
-        border-radius: 8px;
-        background: var(--card-background-color, #fff);
-      }
-      .tl-btn-secondary {
-        background: var(--secondary-background-color, #e0e0e0);
-        color: var(--primary-text-color, #212121);
-        border: 1px solid var(--divider-color, #bdbdbd);
-      }
-      .tl-btn {
-        appearance: none;
-        border: 1px solid transparent;
-        background: var(--primary-color, #03a9f4);
-        color: var(--text-primary-color, #fff);
-        padding: 8px 14px;
-        border-radius: 8px;
-        font-size: 0.9rem;
-        cursor: pointer;
-        text-decoration: none;
-        display: inline-block;
-      }
-      .tl-btn[disabled] { opacity: 0.6; cursor: default; }
-      .tl-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-      .tl-details { margin-top: 8px; }
-      .tl-details summary { cursor: pointer; color: var(--secondary-text-color); }
-      .tl-details pre {
-        overflow: auto;
-        background: var(--secondary-background-color, #f5f5f5);
-        padding: 10px;
-        border-radius: 6px;
-        font-size: 0.8rem;
-      }
-      @media (max-width: 600px) {
-        .tl-overall { gap: 16px; }
-      }
     `;
+
+    this._wire();
+  }
+
+  _embeddedView(coreUrl) {
+    const iframe = coreUrl
+      ? `<iframe
+          class="embed-frame"
+          src="${esc(coreUrl)}"
+          title="ThreadLens full dashboard"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+        ></iframe>`
+      : `<p class="muted">Core URL is not configured.</p>`;
+    return `
+      <section class="card embed-card">
+        <div class="embed-toolbar">
+          ${this._backButton()}
+          ${this._openDashboardButton(coreUrl, "embed-open")}
+        </div>
+        ${iframe}
+      </section>
+    `;
+  }
+
+  _embedBlockedView(coreUrl) {
+    return `
+      <section class="card">
+        <h2>Embedded view is not available</h2>
+        <p class="muted">
+          Home Assistant is using HTTPS, but your ThreadLens Core URL uses HTTP.
+          Browsers block HTTP dashboards from being embedded inside HTTPS pages.
+        </p>
+        <p class="muted">
+          You can still open the full ThreadLens dashboard in a separate tab.
+        </p>
+        <p class="note-inline">
+          If you want embedded view later, configure ThreadLens with an HTTPS dashboard address.
+          This is optional and not required for normal use.
+        </p>
+        <div class="actions">
+          ${this._openDashboardButton(coreUrl)}
+          ${this._backButton()}
+        </div>
+      </section>
+    `;
+  }
+
+  _heroCard(s, coreUrl, connected) {
+    const sev = SEVERITY[s.overall_health] || SEVERITY.unknown;
+    const connBadge = connected
+      ? `<span class="badge ok">Connected to Core</span>`
+      : `<span class="badge off">Not connected</span>`;
+    const healthBadge =
+      connected && s.overall_health
+        ? `<span class="badge" style="--badge:${sev.color}">Health: ${esc(sev.label)}</span>`
+        : "";
+    return `
+      <section class="card hero">
+        <div class="hero-head">
+          <div class="hero-title">
+            <div class="logo">TL</div>
+            <div>
+              <h1>ThreadLens</h1>
+              <div class="subtitle">Home Assistant companion panel</div>
+            </div>
+          </div>
+          <div class="badges">${connBadge}${healthBadge}</div>
+        </div>
+        ${this._ctaRow(coreUrl)}
+      </section>
+    `;
+  }
+
+  _loadingCard() {
+    return `<section class="card"><div class="muted">Loading ThreadLens status…</div></section>`;
+  }
+
+  _disconnectedCard(s, coreUrl) {
+    return `
+      <section class="card">
+        <h2>ThreadLens Core is not responding</h2>
+        <p class="muted">
+          Home Assistant could not reach ThreadLens Core${coreUrl ? ` at <code>${esc(coreUrl)}</code>` : ""}.
+          Check that the ThreadLens Core container or add-on is running and reachable
+          from Home Assistant, then reload the status below.
+        </p>
+        <div class="actions">
+          ${this._openDashboardButton(coreUrl)}
+          ${coreUrl ? this._tryEmbedButton() : ""}
+          <button type="button" class="btn" id="reload">Reload status</button>
+        </div>
+      </section>
+    `;
+  }
+
+  _findingCard(s) {
+    const finding = s.current_finding;
+    const unavailable = s.matter_nodes_unavailable || 0;
+    const incidentLine =
+      unavailable > 0
+        ? `<span class="badge incident">${unavailable} unavailable node${unavailable === 1 ? "" : "s"}</span>`
+        : `<span class="badge ok">No unavailable nodes</span>`;
+    return `
+      <section class="card">
+        <div class="card-head">
+          <h2>Current finding</h2>
+          ${incidentLine}
+        </div>
+        <p class="finding">${finding ? esc(finding) : "No active findings. ThreadLens is monitoring your Thread and Matter environment."}</p>
+      </section>
+    `;
+  }
+
+  _stat(label, value, accent) {
+    return `
+      <div class="stat">
+        <div class="stat-value" ${accent ? `style="color:${accent}"` : ""}>${esc(value)}</div>
+        <div class="stat-label">${esc(label)}</div>
+      </div>
+    `;
+  }
+
+  _statsCard(s) {
+    const unavailAccent =
+      (s.matter_nodes_unavailable || 0) > 0 ? SEVERITY.incident.color : undefined;
+    const mqttAccent = s.mqtt_connected ? undefined : SEVERITY.watch.color;
+    return `
+      <section class="card">
+        <div class="grid">
+          ${this._stat("Matter nodes", s.matter_node_count || 0)}
+          ${this._stat("Unavailable", s.matter_nodes_unavailable || 0, unavailAccent)}
+          ${this._stat("OTBRs", s.otbr_count || 0)}
+          ${this._stat("Networks", s.network_count || 0)}
+          ${this._stat("MQTT", s.mqtt_connected ? "Connected" : "Disconnected", mqttAccent)}
+        </div>
+      </section>
+    `;
+  }
+
+  _networksCard(s) {
+    const networks = s.networks || [];
+    if (!networks.length) {
+      return `<section class="card"><h2>Thread networks</h2><p class="muted">No networks reported yet.</p></section>`;
+    }
+    const rows = networks
+      .map((n) => {
+        const sev = SEVERITY[n.health] || SEVERITY.unknown;
+        return `
+          <div class="net-row">
+            <div class="net-main">
+              <span class="dot" style="background:${sev.color}"></span>
+              <div>
+                <div class="net-name">${esc(n.name)}</div>
+                <div class="net-sub">${n.channel ? `channel ${esc(n.channel)}` : "Thread network"}</div>
+              </div>
+            </div>
+            <div class="net-meta">
+              <span>${esc(n.border_router_count || 0)} border router${n.border_router_count === 1 ? "" : "s"}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+    return `
+      <section class="card">
+        <h2>Thread networks</h2>
+        <div class="net-list">${rows}</div>
+      </section>
+    `;
+  }
+
+  _integrationCard(s, coreUrl, connected) {
+    const mqtt = connected
+      ? s.mqtt_connected
+        ? `<span class="ok-text">Connected</span>`
+        : `<span class="warn">Disconnected</span>`
+      : `<span class="muted">Unknown</span>`;
+    const mdns = connected
+      ? s.mdns_observer_running
+        ? `<span class="ok-text">Running</span>`
+        : `<span class="warn">Stopped</span>`
+      : `<span class="muted">Unknown</span>`;
+    const lastUpdate = connected ? relativeTime(s.last_update) : "—";
+    const version = s.core_version ? ` · v${esc(s.core_version)}` : "";
+    return `
+      <section class="card">
+        <h2>Integration health</h2>
+        <dl class="meta">
+          <div><dt>Core URL</dt><dd><code>${esc(coreUrl || "not configured")}</code>${version}</dd></div>
+          <div><dt>MQTT</dt><dd>${mqtt}</dd></div>
+          <div><dt>mDNS observer</dt><dd>${mdns}</dd></div>
+          <div><dt>Last update</dt><dd>${esc(lastUpdate)}</dd></div>
+        </dl>
+        <div class="actions">
+          ${coreUrl ? `<button type="button" class="btn" id="copy">${this._copied ? "Copied!" : "Copy Core URL"}</button>` : ""}
+          <button type="button" class="btn" id="reload">Reload status</button>
+        </div>
+      </section>
+    `;
+  }
+
+  _wire() {
+    const tryEmbed = this.shadowRoot.getElementById("try-embed");
+    if (tryEmbed) tryEmbed.addEventListener("click", () => this._tryEmbeddedView());
+
+    const back = this.shadowRoot.getElementById("back-summary");
+    if (back) back.addEventListener("click", () => this._backToSummary());
+
+    const reload = this.shadowRoot.getElementById("reload");
+    if (reload) reload.addEventListener("click", () => this._loadSummary());
+
+    const copy = this.shadowRoot.getElementById("copy");
+    if (copy) {
+      copy.addEventListener("click", async () => {
+        const url = this._coreUrl();
+        try {
+          await navigator.clipboard.writeText(url);
+        } catch {
+          /* clipboard may be unavailable; ignore */
+        }
+        this._copied = true;
+        this._render();
+        setTimeout(() => {
+          this._copied = false;
+          this._render();
+        }, 1500);
+      });
+    }
   }
 }
 
+ThreadLensPanel.styles = `
+  :host {
+    display: block;
+    background: var(--primary-background-color, #f5f5f5);
+    min-height: 100%;
+    color: var(--primary-text-color, #212121);
+    font-family: var(--paper-font-body1_-_font-family, Roboto, system-ui, sans-serif);
+    overflow-x: clip;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0));
+    padding-right: max(16px, env(safe-area-inset-right, 0));
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0));
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-sizing: border-box;
+  }
+  .embed-wrap {
+    max-width: none;
+    height: calc(100vh - 32px);
+    min-height: 480px;
+  }
+  .card {
+    background: var(--card-background-color, #fff);
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: var(--ha-card-border-radius, 12px);
+    padding: 20px;
+    box-shadow: var(--ha-card-box-shadow, none);
+    overflow: hidden;
+  }
+  .embed-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 12px;
+  }
+  h1 { font-size: 1.4rem; margin: 0; line-height: 1.2; }
+  h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  .subtitle, .muted { color: var(--secondary-text-color, #727272); }
+  .muted { font-size: 0.92rem; line-height: 1.5; word-break: break-word; }
+  .note-inline {
+    color: var(--secondary-text-color, #727272);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin: 12px 0 0;
+  }
+  code {
+    background: var(--secondary-background-color, #f0f0f0);
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+  .hero-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .hero-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .logo {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    flex-shrink: 0;
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 18%, transparent);
+    color: var(--primary-color, #03a9f4);
+  }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge {
+    --badge: var(--secondary-text-color, #888);
+    display: inline-flex; align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--badge);
+    background: color-mix(in srgb, var(--badge) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--badge) 30%, transparent);
+  }
+  .badge.ok { --badge: var(--success-color, #2e7d32); }
+  .badge.watch { --badge: var(--warning-color, #f9a825); }
+  .badge.incident, .badge.off { --badge: var(--error-color, #c62828); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 48px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    background: var(--secondary-background-color, #f0f0f0);
+    color: var(--primary-text-color, #212121);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:hover { filter: brightness(0.97); }
+  .btn:active { filter: brightness(0.93); }
+  .btn.primary {
+    background: var(--primary-color, #03a9f4);
+    border-color: var(--primary-color, #03a9f4);
+    color: var(--text-primary-color, #fff);
+    font-size: 1.05rem;
+    min-height: 52px;
+  }
+  .btn.secondary {
+    background: transparent;
+    border-color: var(--divider-color, #e0e0e0);
+    color: var(--primary-text-color, #212121);
+    font-weight: 600;
+  }
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .cta-row .btn.primary {
+    flex: 2 1 220px;
+    margin-top: 0;
+    width: auto;
+  }
+  .cta-row .btn.secondary {
+    flex: 1 1 160px;
+  }
+  .embed-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+  .embed-toolbar .btn.primary.embed-open {
+    margin-left: auto;
+    min-height: 44px;
+    font-size: 0.95rem;
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .embed-frame {
+    width: 100%;
+    flex: 1;
+    min-height: 360px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 10px;
+    background: var(--card-background-color, #fff);
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .finding { margin: 0; line-height: 1.55; font-size: 1rem; word-break: break-word; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 12px;
+  }
+  .stat {
+    background: var(--secondary-background-color, #f7f7f7);
+    border-radius: 10px;
+    padding: 14px 12px;
+    text-align: center;
+    min-width: 0;
+  }
+  .stat-value { font-size: 1.7rem; font-weight: 700; line-height: 1; }
+  .stat-label { margin-top: 6px; font-size: 0.78rem; color: var(--secondary-text-color, #727272); line-height: 1.3; }
+  .net-list { display: flex; flex-direction: column; gap: 10px; }
+  .net-row {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--secondary-background-color, #f7f7f7);
+  }
+  .net-main { display: flex; align-items: flex-start; gap: 10px; min-width: 0; flex: 1; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+  .net-name { font-weight: 600; word-break: break-word; }
+  .net-sub { font-size: 0.82rem; color: var(--secondary-text-color, #727272); }
+  .net-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.85rem; color: var(--secondary-text-color, #727272); width: 100%; }
+  .warn { color: var(--warning-color, #f9a825); font-weight: 600; }
+  .ok-text { color: var(--success-color, #2e7d32); font-weight: 600; }
+  .meta { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  .meta div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .meta dt { color: var(--secondary-text-color, #727272); font-size: 0.9rem; flex-shrink: 0; }
+  .meta dd { margin: 0; text-align: right; min-width: 0; word-break: break-all; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .actions .btn { flex: 1 1 auto; min-width: min(100%, 140px); }
+  .note {
+    color: var(--secondary-text-color, #727272);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin: 0 4px;
+    text-align: center;
+    word-break: break-word;
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 12px; gap: 12px; }
+    .embed-wrap { height: calc(100vh - 24px); min-height: 420px; }
+    .card { padding: 16px; }
+    .hero-head { flex-direction: column; align-items: stretch; }
+    .badges { justify-content: flex-start; }
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat-value { font-size: 1.5rem; }
+    .net-row { flex-direction: column; align-items: stretch; }
+    .net-meta { width: 100%; }
+    .meta div { flex-direction: column; align-items: stretch; gap: 4px; }
+    .meta dd { text-align: left; }
+    .actions { flex-direction: column; }
+    .actions .btn { width: 100%; min-width: 0; }
+    .cta-row { flex-direction: column; }
+    .cta-row .btn.primary,
+    .cta-row .btn.secondary { width: 100%; flex: 1 1 auto; }
+    .embed-toolbar { flex-direction: column; }
+    .embed-toolbar .btn.primary.embed-open { margin-left: 0; width: 100%; }
+  }
+`;
+
 if (!customElements.get("threadlens-panel")) {
   customElements.define("threadlens-panel", ThreadLensPanel);
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { canEmbedDashboard };
 }

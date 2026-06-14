@@ -3,8 +3,12 @@
 DOMAIN = "threadlens"
 CONF_URL = "url"
 CONF_EMBED_DASHBOARD = "embed_dashboard"
+CONF_VERIFY_SSL = "verify_ssl"
+CONF_PANEL_ENABLED = "panel_enabled"
 
 DEFAULT_SCAN_INTERVAL = 60
+DEFAULT_VERIFY_SSL = False
+DEFAULT_PANEL_ENABLED = True
 
 # Frontend panel / dashboard.
 PANEL_URL_PATH = "threadlens"
@@ -15,6 +19,7 @@ PANEL_FILENAME = "threadlens-panel.js"
 PANEL_STATIC_URL = "/threadlens_static/threadlens-panel.js"
 
 WS_TYPE_DASHBOARD = "threadlens/dashboard"
+WS_TYPE_PANEL_SUMMARY = "threadlens/panel_summary"
 
 # Authenticated HTTP proxy for the ThreadLens report YAML.
 REPORT_PROXY_URL = "/api/threadlens/report.yaml"
