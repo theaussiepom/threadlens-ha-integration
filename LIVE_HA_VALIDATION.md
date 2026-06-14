@@ -115,10 +115,11 @@ The panel fetches data from Home Assistant via websocket command `threadlens/das
 | API connected | Yes |
 | Overall health | `warning` |
 | Environment health | `warning` |
-| Reason: `otbr_rest_endpoint_mismatch` | Visible (friendly label: "OTBR REST endpoints disagree") |
-| Reason: `foreign_trel_services_observed` | Visible (friendly label: "Other Thread/TREL services visible") |
-| OTBR Study | `leader`, reachable, `rest_endpoint_mismatch` warning shown |
-| OTBR Lounge | `router`, reachable, `rest_endpoint_mismatch` warning shown |
+| Prominent reason: `foreign_trel_services_observed` | Visible (friendly label: "Other Thread/TREL services visible") |
+| `otbr_rest_endpoint_mismatch` | **Not** in prominent chips when reconciled; available under Diagnostics / "All reason codes" |
+| OTBR Study | Effective state `leader`, source `/node`, health badge `healthy`, no scary mismatch banner |
+| OTBR Lounge | Effective state `router`, source `/node`, health badge `healthy`, no scary mismatch banner |
+| OTBR endpoint details | Expand **Endpoint details** on each OTBR for informational mismatch text |
 | Matter nodes | 12 |
 | Matter unavailable | 0 |
 | mDNS services | ~30 |

@@ -36,6 +36,12 @@ _SEVERITY = {
     "critical": 4,
 }
 
+_INACTIVE_STATES = frozenset({"disabled", "inactive", "unknown", ""})
+_ACTIVE_EFFECTIVE_STATES = frozenset(
+    {"active", "leader", "router", "child", "detached", "leader/router"}
+)
+_MISMATCH_ONLY_REASON = "otbr_rest_endpoint_mismatch"
+
 
 def humanize_reason(code: str) -> str:
     """Return a friendly label for a reason code."""
@@ -56,6 +62,98 @@ def friendly_reasons(codes: Any) -> list[dict[str, str]]:
         seen.add(code)
         result.append({"code": code, "label": humanize_reason(code)})
     return result
+
+
+def _normalise_state(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _effective_state(raw: dict[str, Any]) -> str | None:
+    """Return the effective Thread state ThreadLens is using."""
+    for key in ("role", "thread_state"):
+        value = _normalise_state(raw.get(key))
+        if value and value not in _INACTIVE_STATES:
+            return value
+    return None
+
+
+def _source_label(thread_state_source: Any) -> str | None:
+    if not thread_state_source:
+        return None
+    source = str(thread_state_source).strip().lower()
+    if source in {"legacy_node", "node"}:
+        return "/node"
+    if source == "json_api":
+        return "JSON:API"
+    return str(thread_state_source)
+
+
+def is_reconciled_endpoint_mismatch(raw: dict[str, Any]) -> bool:
+    """True when ThreadLens trusts an active /node state despite JSON:API disagreement."""
+    if not raw.get("rest_endpoint_mismatch"):
+        return False
+    if not raw.get("reachable"):
+        return False
+
+    effective = _effective_state(raw)
+    if not effective or effective in _INACTIVE_STATES:
+        return False
+
+    json_api = _normalise_state(raw.get("json_api_thread_state"))
+    legacy = _normalise_state(raw.get("legacy_node_thread_state"))
+    source = _normalise_state(raw.get("thread_state_source"))
+
+    if json_api in _INACTIVE_STATES and legacy not in _INACTIVE_STATES:
+        return True
+    if source in {"legacy_node", "node"} and effective in _ACTIVE_EFFECTIVE_STATES:
+        return True
+    return effective in _ACTIVE_EFFECTIVE_STATES
+
+
+def mismatch_detail_text(raw: dict[str, Any]) -> str | None:
+    """Informational detail for reconciled endpoint mismatches."""
+    if not raw.get("rest_endpoint_mismatch"):
+        return None
+    json_api = raw.get("json_api_thread_state") or "unknown"
+    legacy = raw.get("legacy_node_thread_state") or "unknown"
+    source = _source_label(raw.get("thread_state_source")) or "active endpoint"
+    effective = _effective_state(raw) or raw.get("thread_state") or raw.get("role") or "unknown"
+    return (
+        "OTBR endpoint mismatch observed. JSON:API reported "
+        f"{json_api}, while /node reported {legacy}. ThreadLens is using {source} "
+        f"because it matches the observed active Thread role ({effective}). "
+        "No action is required."
+    )
+
+
+def _all_mismatch_otbrs_reconciled(otbrs: list[dict[str, Any]]) -> bool:
+    mismatched = [item for item in otbrs if item.get("rest_endpoint_mismatch")]
+    if not mismatched:
+        return False
+    return all(is_reconciled_endpoint_mismatch(item) for item in mismatched)
+
+
+def _filter_prominent_reason_codes(codes: list[str], otbrs: list[dict[str, Any]]) -> list[str]:
+    """Hide reconciled endpoint mismatch from prominent dashboard chips."""
+    if _MISMATCH_ONLY_REASON not in codes:
+        return codes
+    if _all_mismatch_otbrs_reconciled(otbrs):
+        return [code for code in codes if code != _MISMATCH_ONLY_REASON]
+    return codes
+
+
+def _combined_reasons_filtered(
+    otbrs: list[dict[str, Any]], *sections: Any
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Return ``(prominent_reasons, all_reasons)`` for the dashboard header."""
+    codes: list[str] = []
+    for section in sections:
+        codes.extend(_reasons(section))
+    all_reasons = friendly_reasons(codes)
+    prominent_codes = _filter_prominent_reason_codes(codes, otbrs)
+    return friendly_reasons(prominent_codes), all_reasons
 
 
 def _state(section: Any) -> str:
@@ -86,21 +184,32 @@ def _rollup(states: list[str]) -> str:
     return worst
 
 
-def _combined_reasons(*sections: Any) -> list[dict[str, str]]:
-    codes: list[str] = []
-    for section in sections:
-        codes.extend(_reasons(section))
-    return friendly_reasons(codes)
-
-
 def _otbr_entry(raw: dict[str, Any]) -> dict[str, Any]:
     health = raw.get("health") if isinstance(raw.get("health"), dict) else {}
+    health_state = _state(health)
+    health_reason_codes = _reasons(health)
+    reconciled = is_reconciled_endpoint_mismatch(raw)
+    effective_state = _effective_state(raw)
+    source_label = _source_label(raw.get("thread_state_source"))
+
+    display_health = health_state
+    if reconciled and set(health_reason_codes) <= {_MISMATCH_ONLY_REASON}:
+        display_health = "healthy"
+
+    prominent_reasons = friendly_reasons(health_reason_codes)
+    if reconciled and set(health_reason_codes) <= {_MISMATCH_ONLY_REASON}:
+        prominent_reasons = []
+
     return {
         "id": raw.get("id"),
         "name": raw.get("name"),
         "reachable": bool(raw.get("reachable")),
-        "health": _state(health),
-        "reasons": friendly_reasons(_reasons(health)),
+        "health": health_state,
+        "display_health": display_health,
+        "reasons": prominent_reasons,
+        "reasons_all": friendly_reasons(health_reason_codes),
+        "effective_state": effective_state,
+        "state_source_label": source_label,
         "thread_state": raw.get("thread_state"),
         "role": raw.get("role"),
         "network_name": raw.get("network_name"),
@@ -109,6 +218,8 @@ def _otbr_entry(raw: dict[str, Any]) -> dict[str, Any]:
         "channel": raw.get("channel"),
         "thread_state_source": raw.get("thread_state_source"),
         "rest_endpoint_mismatch": bool(raw.get("rest_endpoint_mismatch")),
+        "mismatch_reconciled": reconciled,
+        "mismatch_detail": mismatch_detail_text(raw),
         "json_api_thread_state": raw.get("json_api_thread_state"),
         "legacy_node_thread_state": raw.get("legacy_node_thread_state"),
         "capabilities": (
@@ -226,6 +337,9 @@ def build_dashboard_payload(
 
     foreign_trel = sum(1 for service in trel_services if service.get("is_foreign"))
 
+    otbr_entries = [_otbr_entry(item) for item in otbrs if isinstance(item, dict)]
+    prominent_reasons, all_reasons = _combined_reasons_filtered(otbrs, overall, environment)
+
     mqtt_payload: dict[str, Any] | None = None
     if mqtt_status is not None:
         mqtt_payload = {
@@ -243,9 +357,10 @@ def build_dashboard_payload(
             "last_update": last_update,
             "overall_health": _state(overall) if connected else "unknown",
             "environment_health": _state(environment) if connected else "unknown",
-            "reasons": _combined_reasons(overall, environment),
+            "reasons": prominent_reasons,
+            "reasons_all": all_reasons,
         },
-        "otbrs": [_otbr_entry(item) for item in otbrs if isinstance(item, dict)],
+        "otbrs": otbr_entries,
         "networks": [
             _network_entry(item, health_by_pan) for item in networks if isinstance(item, dict)
         ],

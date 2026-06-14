@@ -173,12 +173,13 @@ class ThreadLensPanel extends HTMLElement {
 
   _overallCard(tl) {
     const reasons = tl.reasons || [];
+    const allReasons = tl.reasons_all || reasons;
     const chips = reasons.length
-      ? reasons.map((r) => `<span class="tl-chip">${esc(r.label)}</span>`).join("")
+      ? reasons.map((r) => `<span class="tl-chip tl-chip-warn">${esc(r.label)}</span>`).join("")
       : `<span class="tl-muted">No active warnings</span>`;
-    const rawCodes = reasons.map((r) => r.code).join(", ");
-    const details = reasons.length
-      ? `<details class="tl-details"><summary>Raw reason codes</summary><code>${esc(rawCodes)}</code></details>`
+    const rawCodes = allReasons.map((r) => r.code).join(", ");
+    const details = allReasons.length
+      ? `<details class="tl-details"><summary>All reason codes</summary><code>${esc(rawCodes)}</code></details>`
       : "";
     return `
       <div class="tl-card">
@@ -245,24 +246,39 @@ class ThreadLensPanel extends HTMLElement {
     }
     const items = otbrs
       .map((o) => {
-        const mismatch = o.rest_endpoint_mismatch
-          ? `<div class="tl-inline-warn">JSON:API reports disabled, legacy /node reports active. ThreadLens is using the active /node state.</div>`
-          : "";
+        const displayHealth = o.display_health || o.health;
+        const effectiveState = o.effective_state || o.role || o.thread_state || "—";
+        const sourceLabel = o.state_source_label || o.thread_state_source || "—";
+        const mismatchDetails =
+          o.rest_endpoint_mismatch && o.mismatch_detail
+            ? `<details class="tl-details tl-advanced">
+                <summary>Endpoint details</summary>
+                <p class="tl-info-text">${esc(o.mismatch_detail)}</p>
+                <div class="tl-kv tl-kv-compact">
+                  <span>JSON:API state</span><span>${esc(o.json_api_thread_state || "—")}</span>
+                  <span>/node state</span><span>${esc(o.legacy_node_thread_state || "—")}</span>
+                </div>
+              </details>`
+            : "";
+        const prominentWarn =
+          o.rest_endpoint_mismatch && !o.mismatch_reconciled
+            ? `<div class="tl-inline-warn">OTBR REST endpoints disagree and ThreadLens could not reconcile an active state.</div>`
+            : "";
         return `
         <div class="tl-subcard">
           <div class="tl-subcard-head">
             <strong>${esc(o.name || o.id)}</strong>
-            ${badge(o.health)}
+            ${badge(displayHealth)}
           </div>
           <div class="tl-kv">
             <span>Reachable</span><span>${boolText(o.reachable, "Yes", "No")}</span>
-            <span>Thread state</span><span>${esc(o.thread_state || "—")}</span>
-            <span>Role</span><span>${esc(o.role || "—")}</span>
+            <span>Effective state</span><span>${esc(effectiveState)}</span>
+            <span>Source</span><span>${esc(sourceLabel)}</span>
             <span>Network</span><span>${esc(o.network_name || "—")}</span>
             <span>RLOC16</span><span>${esc(o.rloc16 || "—")}</span>
-            <span>State source</span><span>${esc(o.thread_state_source || "—")}</span>
           </div>
-          ${mismatch}
+          ${prominentWarn}
+          ${mismatchDetails}
         </div>`;
       })
       .join("");
@@ -387,23 +403,52 @@ class ThreadLensPanel extends HTMLElement {
         padding: 2px 10px;
         border-radius: 12px;
         font-size: 0.8rem;
-        font-weight: 500;
+        font-weight: 600;
         text-transform: capitalize;
-        color: #fff;
+        color: var(--primary-text-color, #212121);
+        border: 1px solid var(--divider-color, #bdbdbd);
+        background: var(--card-background-color, #fff);
       }
-      .tl-ok { background: var(--success-color, #43a047); }
-      .tl-warn { background: var(--warning-color, #ffa600); color: #222; }
-      .tl-degraded { background: #ef6c00; }
-      .tl-critical { background: var(--error-color, #db4437); }
-      .tl-unknown { background: var(--disabled-text-color, #9e9e9e); }
+      .tl-ok {
+        background: color-mix(in srgb, var(--success-color, #43a047) 14%, transparent);
+        border-color: var(--success-color, #43a047);
+        color: var(--primary-text-color, #1b5e20);
+      }
+      .tl-warn {
+        background: color-mix(in srgb, var(--warning-color, #fb8c00) 16%, transparent);
+        border-color: var(--warning-color, #fb8c00);
+        color: var(--primary-text-color, #4e342e);
+      }
+      .tl-degraded {
+        background: color-mix(in srgb, #ef6c00 16%, transparent);
+        border-color: #ef6c00;
+        color: var(--primary-text-color, #4e342e);
+      }
+      .tl-critical {
+        background: color-mix(in srgb, var(--error-color, #db4437) 14%, transparent);
+        border-color: var(--error-color, #db4437);
+        color: var(--primary-text-color, #b71c1c);
+      }
+      .tl-unknown {
+        background: var(--secondary-background-color, #eeeeee);
+        border-color: var(--divider-color, #bdbdbd);
+        color: var(--secondary-text-color, #616161);
+      }
       .tl-overall { display: flex; gap: 32px; margin-bottom: 12px; }
       .tl-chips { display: flex; flex-wrap: wrap; gap: 8px; }
       .tl-chip {
-        background: var(--secondary-background-color, #e0e0e0);
-        color: var(--primary-text-color);
+        background: var(--card-background-color, #fff);
+        color: var(--primary-text-color, #212121);
+        border: 1px solid var(--divider-color, #bdbdbd);
         border-radius: 12px;
         padding: 4px 10px;
         font-size: 0.8rem;
+        font-weight: 500;
+      }
+      .tl-chip-warn {
+        background: color-mix(in srgb, var(--warning-color, #fb8c00) 12%, transparent);
+        border-color: var(--warning-color, #fb8c00);
+        color: var(--primary-text-color, #4e342e);
       }
       .tl-summary-grid {
         display: grid;
@@ -439,14 +484,22 @@ class ThreadLensPanel extends HTMLElement {
         margin-top: 10px;
         padding: 8px 10px;
         border-radius: 6px;
-        background: rgba(255, 166, 0, 0.15);
-        border-left: 3px solid var(--warning-color, #ffa600);
+        background: color-mix(in srgb, var(--warning-color, #fb8c00) 12%, transparent);
+        border: 1px solid var(--warning-color, #fb8c00);
+        color: var(--primary-text-color, #4e342e);
         font-size: 0.85rem;
       }
+      .tl-info-text {
+        margin: 8px 0 0;
+        color: var(--primary-text-color, #212121);
+        font-size: 0.85rem;
+        line-height: 1.45;
+      }
+      .tl-kv-compact { margin-top: 8px; }
       .tl-list { margin: 8px 0 0; padding-left: 18px; }
       .tl-btn {
         appearance: none;
-        border: none;
+        border: 1px solid transparent;
         background: var(--primary-color, #03a9f4);
         color: var(--text-primary-color, #fff);
         padding: 8px 14px;

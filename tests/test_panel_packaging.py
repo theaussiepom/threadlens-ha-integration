@@ -35,6 +35,15 @@ def test_const_static_url_matches_filename():
     assert const.WS_TYPE_DASHBOARD == "threadlens/dashboard"
 
 
+def test_panel_semantics_hide_reconciled_mismatch_banner():
+    contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
+    assert "JSON:API reports disabled, legacy /node reports active" not in contents
+    assert "mismatch_reconciled" in contents
+    assert "Effective state" in contents
+    assert "Endpoint details" in contents
+    assert "color-mix(in srgb" in contents
+
+
 def test_manifest_declares_panel_dependencies():
     manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text(encoding="utf-8"))
     for dependency in ("http", "websocket_api", "frontend", "panel_custom"):

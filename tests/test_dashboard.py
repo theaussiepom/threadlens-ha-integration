@@ -146,7 +146,103 @@ def test_warning_reasons_are_friendly():
     assert "mdns_service_flapping_degraded" in codes
 
 
-def test_otbr_endpoint_mismatch_appears():
+def test_otbr_endpoint_mismatch_reconciled_hides_prominent_warning():
+    """Reconciled active mismatch stays in diagnostics but not prominent chips."""
+    health = {
+        "overall": {
+            "state": "warning",
+            "reasons": ["otbr_rest_endpoint_mismatch", "foreign_trel_services_observed"],
+        },
+        "environment": {
+            "state": "warning",
+            "reasons": ["otbr_rest_endpoint_mismatch", "foreign_trel_services_observed"],
+        },
+    }
+    otbrs = [
+        {
+            "id": "study",
+            "name": "Study OTBR",
+            "reachable": True,
+            "health": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
+            "thread_state": "leader",
+            "role": "leader",
+            "thread_state_source": "legacy_node",
+            "rest_endpoint_mismatch": True,
+            "json_api_thread_state": "disabled",
+            "legacy_node_thread_state": "active",
+        },
+        {
+            "id": "lounge",
+            "name": "Lounge OTBR",
+            "reachable": True,
+            "health": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
+            "thread_state": "router",
+            "role": "router",
+            "thread_state_source": "legacy_node",
+            "rest_endpoint_mismatch": True,
+            "json_api_thread_state": "disabled",
+            "legacy_node_thread_state": "active",
+        },
+    ]
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=health,
+        otbrs=otbrs,
+        report_urls=REPORT_URLS,
+    )
+
+    prominent_codes = {r["code"] for r in payload["threadlens"]["reasons"]}
+    all_codes = {r["code"] for r in payload["threadlens"]["reasons_all"]}
+    assert "otbr_rest_endpoint_mismatch" not in prominent_codes
+    assert "foreign_trel_services_observed" in prominent_codes
+    assert "otbr_rest_endpoint_mismatch" in all_codes
+
+    study = payload["otbrs"][0]
+    assert study["mismatch_reconciled"] is True
+    assert study["display_health"] == "healthy"
+    assert study["effective_state"] == "leader"
+    assert study["state_source_label"] == "/node"
+    assert study["reasons"] == []
+    assert any(r["code"] == "otbr_rest_endpoint_mismatch" for r in study["reasons_all"])
+    assert study["mismatch_detail"]
+    assert "No action is required" in study["mismatch_detail"]
+
+
+def test_otbr_endpoint_mismatch_unreconciled_stays_prominent():
+    """Unreachable or inactive mismatch remains a prominent warning."""
+    health = {
+        "overall": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
+        "environment": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
+    }
+    payload = build_dashboard_payload(
+        connected=True,
+        version=VERSION,
+        status=STATUS,
+        health=health,
+        otbrs=[
+            {
+                "id": "study",
+                "reachable": False,
+                "health": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
+                "thread_state": "disabled",
+                "role": None,
+                "rest_endpoint_mismatch": True,
+                "json_api_thread_state": "disabled",
+                "legacy_node_thread_state": "disabled",
+            }
+        ],
+        report_urls=REPORT_URLS,
+    )
+    prominent_codes = {r["code"] for r in payload["threadlens"]["reasons"]}
+    assert "otbr_rest_endpoint_mismatch" in prominent_codes
+    otbr = payload["otbrs"][0]
+    assert otbr["mismatch_reconciled"] is False
+    assert otbr["display_health"] == "warning"
+
+
+def test_otbr_endpoint_mismatch_raw_fields_preserved():
     payload = build_dashboard_payload(
         connected=True,
         version=VERSION,
@@ -158,7 +254,8 @@ def test_otbr_endpoint_mismatch_appears():
                 "name": "Study OTBR",
                 "reachable": True,
                 "health": {"state": "warning", "reasons": ["otbr_rest_endpoint_mismatch"]},
-                "thread_state": "active",
+                "thread_state": "leader",
+                "role": "leader",
                 "thread_state_source": "legacy_node",
                 "rest_endpoint_mismatch": True,
                 "json_api_thread_state": "disabled",
@@ -171,7 +268,7 @@ def test_otbr_endpoint_mismatch_appears():
     assert otbr["rest_endpoint_mismatch"] is True
     assert otbr["thread_state_source"] == "legacy_node"
     assert otbr["json_api_thread_state"] == "disabled"
-    assert any(r["code"] == "otbr_rest_endpoint_mismatch" for r in otbr["reasons"])
+    assert any(r["code"] == "otbr_rest_endpoint_mismatch" for r in otbr["reasons_all"])
 
 
 def test_unavailable_matter_nodes_listed():
