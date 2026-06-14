@@ -205,6 +205,7 @@ class ThreadLensPanel extends HTMLElement {
           </span>
           <span class="tl-muted">v${esc(tl.version || "?")}</span>
           <span class="tl-muted">Updated ${esc(lastFetch)}</span>
+          <span class="tl-muted tl-hint">After HACS updates, hard-refresh (Cmd+Shift+R)</span>
           <button id="tl-refresh" class="tl-btn" ${this._loading ? "disabled" : ""}>
             ${this._loading ? "Refreshing…" : "Refresh"}
           </button>
@@ -304,24 +305,40 @@ class ThreadLensPanel extends HTMLElement {
           <span>${esc(matter.unknown_count || 0)} unknown</span>
         </div>
         ${sections}
-        <p class="tl-muted tl-note">Click a node to inspect recent events and assessment.</p>
+        <p class="tl-muted tl-note">Click a row (or View) to inspect recent events and assessment.</p>
       </div>`;
   }
 
   _nodeRow(n) {
     const sub = [n.vendor, n.product].filter(Boolean).join(" · ");
+    const secondary = [];
+    if (n.matter_name && n.matter_name !== n.name) {
+      secondary.push(n.matter_name);
+    }
+    if (n.serial && n.serial !== n.matter_name) {
+      secondary.push(n.serial);
+    }
+    secondary.push(`#${n.node_id}`);
+    if (sub) secondary.push(sub);
+    const entityNames = n.ha_entity_names || [];
+    const entityLine =
+      entityNames.length && (!n.ha_device_name || entityNames[0] !== n.name)
+        ? entityNames.join(", ")
+        : "";
     const recent =
       n.recent_unavailable_count || n.recent_recovered_count
         ? `<span class="tl-muted">${esc(n.recent_unavailable_count || 0)} down / ${esc(n.recent_recovered_count || 0)} up (24h)</span>`
         : "";
     return `
-      <div class="tl-node-row" data-node-id="${esc(n.node_id)}" role="button" tabindex="0">
+      <div class="tl-node-row" data-node-id="${esc(n.node_id)}" role="button" tabindex="0" title="View node details">
         <div class="tl-node-row-main">
           <strong>${esc(n.name)}</strong>
-          <span class="tl-muted">#${esc(n.node_id)}${sub ? " · " + esc(sub) : ""}</span>
+          <span class="tl-muted">${esc(secondary.join(" · "))}</span>
+          ${entityLine ? `<span class="tl-muted">${esc(entityLine)}</span>` : ""}
         </div>
         <div class="tl-node-row-meta">
           ${recent}
+          <span class="tl-node-view">View</span>
           ${nodeBadge(n.classification)}
         </div>
       </div>`;
@@ -345,6 +362,14 @@ class ThreadLensPanel extends HTMLElement {
           .join("")
       : `<p class="tl-muted">No recent events for this node in the current window.</p>`;
     const sub = [node.vendor, node.product].filter(Boolean).join(" · ");
+    const haEntities = (node.ha_entity_names || []).join(", ");
+    const matterLine =
+      node.matter_name && node.matter_name !== node.name
+        ? `<p class="tl-muted">Matter name: ${esc(node.matter_name)}</p>`
+        : "";
+    const entityLine = haEntities
+      ? `<p class="tl-muted">Home Assistant entities: ${esc(haEntities)}</p>`
+      : "";
     return `
       <div class="tl-card">
         <div class="tl-subcard-head">
@@ -352,6 +377,8 @@ class ThreadLensPanel extends HTMLElement {
           ${nodeBadge(node.classification)}
         </div>
         <h2>${esc(node.name)} <span class="tl-muted">#${esc(node.node_id)}</span></h2>
+        ${matterLine}
+        ${entityLine}
         ${sub ? `<p class="tl-muted">${esc(sub)}</p>` : ""}
         <div class="tl-kv">
           <span>Availability</span><span>${boolText(node.available, "Available", "Unavailable")}</span>
@@ -790,6 +817,12 @@ class ThreadLensPanel extends HTMLElement {
       .tl-node-row:hover { background: var(--secondary-background-color, #f5f5f5); }
       .tl-node-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
       .tl-node-row-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+      .tl-node-view {
+        font-size: 0.8rem;
+        color: var(--primary-color, #03a9f4);
+        font-weight: 600;
+      }
+      .tl-hint { font-size: 0.8rem; font-style: italic; }
       .tl-event-row {
         display: grid;
         grid-template-columns: max-content 1fr max-content;

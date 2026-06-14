@@ -65,3 +65,5 @@ def test_panel_has_node_health_and_incident_view():
     assert "data-node-id" in contents
     assert "What this suggests" in contents
     assert "mdi:access-point-network" in contents
+    assert "View" in contents
+    assert "hard-refresh" in contents

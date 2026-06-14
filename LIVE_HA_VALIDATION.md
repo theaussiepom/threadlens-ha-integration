@@ -134,7 +134,9 @@ The panel fetches data from Home Assistant via websocket command `threadlens/das
 - [ ] Overall health card with reason chips (no foreign-TREL / reconciled-mismatch chips)
 - [ ] Summary cards (OTBRs, networks, Matter, mDNS, TREL, MQTT)
 - [ ] **Matter node health** section with grouped, sorted, clickable node rows + health badges
-- [ ] Click a node → node detail view (header, current state, recent events, assessment, **Back**)
+- [ ] Node rows show **Home Assistant blind/device names** where matched (ThreadLens serial as secondary)
+- [ ] Hard-refresh browser after HACS update (Cmd+Shift+R) if panel looked stale
+- [ ] Click a node row or **View** → node detail view (header, current state, recent events, assessment, **Back**)
 - [ ] OTBR section with Study/Lounge details
 - [ ] mDNS / TREL section with informational foreign-TREL note
 - [ ] Report section: **Open report YAML** opens a new browser tab showing YAML text (no download, no CORS)

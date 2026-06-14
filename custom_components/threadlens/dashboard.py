@@ -287,11 +287,16 @@ def _matter_section(
     matter_nodes: list[dict[str, Any]],
     health: dict[str, Any] | None,
     events: list[dict[str, Any]],
+    ha_matter_names: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     servers_total = len(matter_servers)
     servers_connected = sum(1 for server in matter_servers if server.get("connected"))
 
-    nodes = [_node_entry(node, events) for node in matter_nodes if isinstance(node, dict)]
+    nodes = [
+        _node_entry(node, events, ha_matter_names)
+        for node in matter_nodes
+        if isinstance(node, dict)
+    ]
     nodes = _sort_nodes(nodes)
 
     groups = {"unavailable": [], "recently_unstable": [], "unknown": [], "healthy": []}
@@ -422,7 +427,11 @@ def classify_matter_node(node: dict[str, Any], node_events: list[dict[str, Any]]
     return "unknown"
 
 
-def _node_entry(node: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+def _node_entry(
+    node: dict[str, Any],
+    events: list[dict[str, Any]],
+    ha_matter_names: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     subject_id = _node_subject_id(node)
     node_events = _events_for_subject(events, subject_id)
     recent_unavailable = sum(
@@ -431,11 +440,19 @@ def _node_entry(node: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
     recent_recovered = sum(1 for e in node_events if e.get("event_type") == _NODE_RECOVERED_EVENT)
     last_event_at = node_events[0].get("timestamp") if node_events else None
     classification = classify_matter_node(node, node_events)
+    matter_name = _node_label(node)
+    node_id = node.get("node_id")
+    ha_fields = (ha_matter_names or {}).get(node_id, {}) if node_id is not None else {}
+    ha_device_name = ha_fields.get("ha_device_name")
+    ha_entity_names = ha_fields.get("ha_entity_names") or []
+    display_name = ha_device_name or (ha_entity_names[0] if ha_entity_names else matter_name)
     return {
-        "node_id": node.get("node_id"),
+        "node_id": node_id,
         "server_id": node.get("server_id"),
         "subject_id": subject_id,
-        "name": _node_label(node),
+        "name": display_name,
+        "matter_name": matter_name,
+        "serial": node.get("serial"),
         "available": node.get("available"),
         "classification": classification,
         "vendor": node.get("vendor"),
@@ -447,6 +464,7 @@ def _node_entry(node: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
         "recent_unavailable_count": recent_unavailable,
         "recent_recovered_count": recent_recovered,
         "last_event_at": last_event_at,
+        **ha_fields,
     }
 
 
@@ -648,6 +666,7 @@ def build_dashboard_payload(
     trel_services: list[dict[str, Any]] | None = None,
     events: Any = None,
     event_window: str = DEFAULT_EVENT_WINDOW,
+    ha_matter_names: dict[int, dict[str, Any]] | None = None,
     report_urls: dict[str, str] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
@@ -712,7 +731,9 @@ def build_dashboard_payload(
     if not trel_real_reasons and trel_state == "warning":
         trel_display_health = "healthy"
 
-    matter_section = _matter_section(matter_servers, matter_nodes, health, relevant_events)
+    matter_section = _matter_section(
+        matter_servers, matter_nodes, health, relevant_events, ha_matter_names
+    )
     mdns_state = _state(mdns_health)
     mdns_observation_degraded = mdns_collector.get("observation_degraded")
 
