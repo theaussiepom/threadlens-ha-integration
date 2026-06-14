@@ -90,9 +90,9 @@ def test_panel_shows_informational_health_observations():
     assert "ThreadLens Core reports" in contents
 
 
-def test_panel_shows_availability_churn_metrics():
+def test_panel_shows_availability_on_node_rows():
     contents = (PANEL_DIR / "threadlens-panel.js").read_text(encoding="utf-8")
-    assert "Command availability churn (24h)" in contents
-    assert "Median offline" in contents
-    assert "Down / up" in contents
-    assert "_availabilityChurnSection" in contents
+    assert "offline_episodes_24h" in contents
+    assert "_availabilityLine" in contents
+    assert "Command availability churn (24h)" not in contents
+    assert "_availabilityChurnSection" not in contents
