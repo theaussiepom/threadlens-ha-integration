@@ -47,7 +47,6 @@ jobs:
 
           hacs = json.loads((root / "hacs.json").read_text())
           assert hacs["filename"] == "threadlens"
-          assert "threadlens" in hacs["domains"]
           assert hacs["content_in_root"] is False
 
           manifest = json.loads((integration / "manifest.json").read_text())

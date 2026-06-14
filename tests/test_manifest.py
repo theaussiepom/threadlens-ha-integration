@@ -44,6 +44,12 @@ def test_hacs_json_parses() -> None:
     assert hacs["render_readme"] is True
     assert "homeassistant" in hacs
     assert hacs["homeassistant"] == "2026.3.0"
+    assert "domains" not in hacs
+
+
+def test_manifest_declares_optional_matter_after_dependency() -> None:
+    manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert "matter" in manifest.get("after_dependencies", [])
 
 
 def test_translations_include_config_flow_errors() -> None:

@@ -4,6 +4,5 @@
   "filename": "threadlens",
   "render_readme": true,
   "homeassistant": "2026.3.0",
-  "domains": ["threadlens"],
   "country": ["GB", "US", "AU"]
 }
