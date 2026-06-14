@@ -327,14 +327,13 @@ def _matter_section(
             health_states.append(_state(entry))
 
     ha_names_matched = sum(1 for node in nodes if _node_has_ha_names(node))
-    ha_names_unmatched = len(nodes) - ha_names_matched
 
     return {
         "servers": servers_total,
         "servers_connected": servers_connected,
         "node_count": len(matter_nodes),
         "ha_names_matched": ha_names_matched,
-        "ha_names_unmatched": ha_names_unmatched,
+        "ha_names_unmatched": len(nodes) - ha_names_matched,
         "unavailable_count": len(unavailable_nodes),
         "unavailable_nodes": [
             {"node_id": n["node_id"], "server_id": n["server_id"], "friendly_name": n["name"]}
@@ -566,7 +565,7 @@ def _coerce_node_id(value: Any) -> int | None:
 
 
 def _node_has_ha_names(node: dict[str, Any]) -> bool:
-    return bool(node.get("ha_device_name") or node.get("ha_entity_names"))
+    return bool(node.get("ha_device_name"))
 
 
 def _node_entry(
@@ -593,8 +592,7 @@ def _node_entry(
     node_id = _coerce_node_id(node.get("node_id"))
     ha_fields = (ha_matter_names or {}).get(node_id, {}) if node_id is not None else {}
     ha_device_name = ha_fields.get("ha_device_name")
-    ha_entity_names = ha_fields.get("ha_entity_names") or []
-    display_name = ha_device_name or (ha_entity_names[0] if ha_entity_names else matter_name)
+    display_name = ha_device_name or matter_name
     return {
         "node_id": node_id,
         "server_id": node.get("server_id"),
@@ -614,7 +612,7 @@ def _node_entry(
         "recent_recovered_count": recent_recovered,
         "last_event_at": last_event_at,
         **availability_metrics,
-        **ha_fields,
+        **({"ha_device_name": ha_device_name} if ha_device_name else {}),
     }
 
 

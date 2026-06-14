@@ -9,8 +9,6 @@
 
 const REFRESH_INTERVAL_MS = 30000;
 
-const HEALTH_ORDER = ["critical", "degraded", "warning", "unknown", "healthy"];
-
 function esc(value) {
   if (value === null || value === undefined) return "";
   return String(value)
@@ -336,91 +334,9 @@ class ThreadLensPanel extends HTMLElement {
           <span>${esc(matter.healthy_count || 0)} healthy</span>
           <span>${esc(matter.unknown_count || 0)} unknown</span>
         </div>
-        ${this._haNamesSection(matter)}
         ${sections}
         <p class="tl-muted tl-note">Click a row (or View) to inspect recent events and assessment.</p>
       </div>`;
-  }
-
-  _haNamesSection(matter) {
-    const nodes = matter.nodes || [];
-    const matched = nodes.filter(
-      (n) => n.ha_device_name || (n.ha_entity_names || []).length
-    );
-    const matchedCount = matter.ha_names_matched ?? matched.length;
-    const unmatchedCount =
-      matter.ha_names_unmatched ?? Math.max(nodes.length - matchedCount, 0);
-
-    if (!nodes.length) {
-      return "";
-    }
-
-    if (!matched.length) {
-      return `
-        <div class="tl-ha-names">
-          <div class="tl-ha-names-head">
-            <strong>Home Assistant names</strong>
-            <span class="tl-muted">0 / ${esc(nodes.length)} matched</span>
-          </div>
-          <p class="tl-muted">No Matter nodes matched HA device or entity registry entries yet. Blinds must be commissioned in the Home Assistant Matter integration (not only visible to ThreadLens). Reload ThreadLens after Matter devices are present.</p>
-        </div>`;
-    }
-
-    const rows = matched
-      .map((n) => {
-        const device = n.ha_device_name || "—";
-        const entities = this._formatHaEntities(n);
-        return `
-          <div class="tl-ha-names-row">
-            <span class="tl-ha-names-node">${esc(n.name)} <span class="tl-muted">#${esc(n.node_id)}</span></span>
-            <span>${esc(device)}</span>
-            <span>${entities}</span>
-          </div>`;
-      })
-      .join("");
-
-    const unmatchedNote =
-      unmatchedCount > 0
-        ? `<p class="tl-muted">${esc(unmatchedCount)} node(s) still use ThreadLens/Matter names only.</p>`
-        : "";
-
-    return `
-      <div class="tl-ha-names">
-        <div class="tl-ha-names-head">
-          <strong>Home Assistant names</strong>
-          <span class="tl-muted">${esc(matchedCount)} / ${esc(nodes.length)} matched</span>
-        </div>
-        <div class="tl-ha-names-table">
-          <div class="tl-ha-names-header">
-            <span>ThreadLens node</span>
-            <span>HA device</span>
-            <span>HA entities</span>
-          </div>
-          ${rows}
-        </div>
-        ${unmatchedNote}
-      </div>`;
-  }
-
-  _formatHaEntities(node) {
-    const names = node.ha_entity_names || [];
-    const ids = node.ha_entity_ids || [];
-    if (!names.length && !ids.length) {
-      return '<span class="tl-muted">—</span>';
-    }
-    if (names.length && ids.length && names.length === ids.length) {
-      return names
-        .map((name, index) => {
-          const id = ids[index];
-          if (name && id && name !== id) {
-            return `<span class="tl-ha-entity"><strong>${esc(name)}</strong> <span class="tl-muted">${esc(id)}</span></span>`;
-          }
-          return `<span class="tl-ha-entity">${esc(name || id)}</span>`;
-        })
-        .join("");
-    }
-    const values = names.length ? names : ids;
-    return values.map((value) => `<span class="tl-ha-entity">${esc(value)}</span>`).join("");
   }
 
   _availabilityLine(n) {
@@ -442,18 +358,13 @@ class ThreadLensPanel extends HTMLElement {
     }
     secondary.push(`#${n.node_id}`);
     if (sub) secondary.push(sub);
-    const haDevice =
-      n.ha_device_name && n.ha_device_name !== n.name ? n.ha_device_name : "";
-    const entityLine = this._formatHaEntities(n);
     const availabilityLine = this._availabilityLine(n);
     return `
       <div class="tl-node-row" data-node-id="${esc(n.node_id)}" role="button" tabindex="0" title="View node details">
         <div class="tl-node-row-main">
           <strong>${esc(n.name)}</strong>
           <span class="tl-muted">${esc(secondary.join(" · "))}</span>
-          ${haDevice ? `<span class="tl-muted">HA device: ${esc(haDevice)}</span>` : ""}
           <div>${availabilityLine}</div>
-          ${entityLine ? `<div class="tl-node-entities">${entityLine}</div>` : ""}
         </div>
         <div class="tl-node-row-meta">
           <span class="tl-node-view">View</span>
@@ -480,17 +391,10 @@ class ThreadLensPanel extends HTMLElement {
           .join("")
       : `<p class="tl-muted">No recent events for this node in the current window.</p>`;
     const sub = [node.vendor, node.product].filter(Boolean).join(" · ");
-    const haEntities = this._formatHaEntities(node);
-    const haDeviceLine = node.ha_device_name
-      ? `<p class="tl-muted">Home Assistant device: ${esc(node.ha_device_name)}</p>`
-      : "";
     const matterLine =
       node.matter_name && node.matter_name !== node.name
         ? `<p class="tl-muted">Matter name: ${esc(node.matter_name)}</p>`
         : "";
-    const entityLine = haEntities
-      ? `<div class="tl-node-entities">${haEntities}</div>`
-      : "";
     return `
       <div class="tl-card">
         <div class="tl-subcard-head">
@@ -498,9 +402,7 @@ class ThreadLensPanel extends HTMLElement {
           ${nodeBadge(node.classification)}
         </div>
         <h2>${esc(node.name)} <span class="tl-muted">#${esc(node.node_id)}</span></h2>
-        ${haDeviceLine}
         ${matterLine}
-        ${entityLine ? `<p class="tl-muted">Home Assistant entities</p>${entityLine}` : ""}
         ${sub ? `<p class="tl-muted">${esc(sub)}</p>` : ""}
         <div class="tl-kv">
           <span>Availability</span><span>${boolText(node.available, "Available", "Unavailable")}</span>
@@ -527,7 +429,6 @@ class ThreadLensPanel extends HTMLElement {
   }
 
   _nodeAssessment(node, d) {
-    // Mirror the backend node-detail assessment using the payload already present.
     const events = (d.events && d.events.items) || [];
     const matter = d.matter || {};
     const nodes = matter.nodes || [];
@@ -575,43 +476,6 @@ class ThreadLensPanel extends HTMLElement {
   }
 
   _overallCard(tl) {
-    const reasons = tl.reasons || [];
-    const informational = tl.informational_reasons || [];
-    const allReasons = tl.reasons_all || reasons;
-    const rawDiffers =
-      (tl.overall_health_raw && tl.overall_health_raw !== tl.overall_health) ||
-      (tl.environment_health_raw && tl.environment_health_raw !== tl.environment_health);
-
-    let chips = "";
-    if (reasons.length) {
-      chips = reasons
-        .map((r) => `<span class="tl-chip tl-chip-warn">${esc(r.label)}</span>`)
-        .join("");
-    } else if (informational.length) {
-      chips = informational
-        .map((r) => `<span class="tl-chip tl-chip-info">${esc(r.label)}</span>`)
-        .join("");
-    } else {
-      chips = `<span class="tl-muted">No active warnings</span>`;
-    }
-
-    const rawNote = rawDiffers
-      ? `<p class="tl-muted tl-info-text">ThreadLens Core reports <strong>${esc(
-          tl.overall_health_raw || "unknown"
-        )}</strong> overall / <strong>${esc(
-          tl.environment_health_raw || "unknown"
-        )}</strong> environment. The observations below are informational and do not require action.</p>`
-      : "";
-
-    const informationalNote =
-      informational.length && !reasons.length
-        ? `<p class="tl-muted tl-info-text">Informational observations only — matched on both the dashboard and integration sensors.</p>`
-        : "";
-
-    const rawCodes = allReasons.map((r) => r.code).join(", ");
-    const details = allReasons.length
-      ? `<details class="tl-details"><summary>All reason codes</summary><code>${esc(rawCodes)}</code></details>`
-      : "";
     return `
       <div class="tl-card">
         <div class="tl-overall">
@@ -624,10 +488,6 @@ class ThreadLensPanel extends HTMLElement {
             ${badge(tl.environment_health)}
           </div>
         </div>
-        ${rawNote}
-        <div class="tl-chips">${chips}</div>
-        ${informationalNote}
-        ${details}
       </div>`;
   }
 
@@ -874,7 +734,7 @@ class ThreadLensPanel extends HTMLElement {
         border-color: var(--divider-color, #bdbdbd);
         color: var(--secondary-text-color, #616161);
       }
-      .tl-overall { display: flex; gap: 32px; margin-bottom: 12px; }
+      .tl-overall { display: flex; gap: 32px; }
       .tl-chips { display: flex; flex-wrap: wrap; gap: 8px; }
       .tl-chip {
         background: var(--card-background-color, #fff);
@@ -884,16 +744,6 @@ class ThreadLensPanel extends HTMLElement {
         padding: 4px 10px;
         font-size: 0.8rem;
         font-weight: 500;
-      }
-      .tl-chip-warn {
-        background: color-mix(in srgb, var(--warning-color, #fb8c00) 12%, transparent);
-        border-color: var(--warning-color, #fb8c00);
-        color: var(--primary-text-color, #4e342e);
-      }
-      .tl-chip-info {
-        background: var(--secondary-background-color, #f5f5f5);
-        border-color: var(--divider-color, #bdbdbd);
-        color: var(--primary-text-color, #424242);
       }
       .tl-summary-grid {
         display: grid;
@@ -980,56 +830,6 @@ class ThreadLensPanel extends HTMLElement {
       .tl-node-row:hover { background: var(--secondary-background-color, #f5f5f5); }
       .tl-node-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
       .tl-node-row-meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-      .tl-node-entities {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px 10px;
-        margin-top: 4px;
-      }
-      .tl-ha-entity {
-        display: inline-flex;
-        align-items: baseline;
-        gap: 4px;
-        font-size: 0.85rem;
-      }
-      .tl-ha-names {
-        margin-bottom: 14px;
-        padding: 12px;
-        border: 1px solid var(--divider-color, #e0e0e0);
-        border-radius: 8px;
-        background: var(--secondary-background-color, #fafafa);
-      }
-      .tl-ha-names-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 10px;
-      }
-      .tl-ha-names-table {
-        display: grid;
-        gap: 6px;
-        font-size: 0.85rem;
-      }
-      .tl-ha-names-header,
-      .tl-ha-names-row {
-        display: grid;
-        grid-template-columns: minmax(140px, 1.2fr) minmax(120px, 1fr) minmax(180px, 1.4fr);
-        gap: 10px;
-        align-items: start;
-      }
-      .tl-ha-names-header {
-        color: var(--secondary-text-color);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        font-size: 0.75rem;
-      }
-      .tl-ha-names-row {
-        padding: 8px 0;
-        border-top: 1px solid var(--divider-color, #eeeeee);
-      }
-      .tl-ha-names-node strong { font-weight: 600; }
       .tl-node-view {
         font-size: 0.8rem;
         color: var(--primary-color, #03a9f4);
