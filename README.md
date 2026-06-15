@@ -41,6 +41,7 @@ required and **not** the default.
   (`/api/threadlens/report.yaml`) — no CORS, mixed-content, or local-network auth issues
 - Exposes a small set of secondary helper sensors, binary sensors, and buttons for automations
 - Provides diagnostics for integration troubleshooting
+- **Pushes Home Assistant Matter device names to ThreadLens Core** so the Core and companion dashboards show familiar blind/device names instead of Matter serials only (see [docs/ha-matter-device-names.md](docs/ha-matter-device-names.md))
 
 Foreign Thread/TREL services on your LAN (HomePods, Apple TVs, Nest, other fabrics) are treated as
 **informational** and do not, by themselves, make the dashboard look unhealthy. A reconciled OTBR REST
@@ -49,6 +50,27 @@ shown as a detail rather than a prominent warning. Raw reason codes remain avail
 
 The dashboard **does not depend on MQTT Discovery**. MQTT Discovery remains optional for normal Home
 Assistant entities and automations.
+
+## Home Assistant Matter device names in Core
+
+ThreadLens Core **does not** read your Home Assistant device registry. **This integration supplies HA device names** to Core.
+
+| Without HACS integration | With HACS integration |
+|--------------------------|------------------------|
+| Core shows Matter Server names (often serials like `SCM-MT-2507-0099`) | Core shows HA names (e.g. `Study Blind`) when matched |
+
+How it works:
+
+1. The integration reads Matter devices/entities from the HA registries.
+2. It maps them to ThreadLens Matter nodes by **node id** and **serial** fallback.
+3. It POSTs matches to Core: `/api/v1/integrations/homeassistant/matter-names`
+4. It re-pushes on startup and when Matter registry entries change.
+
+**Requirements:** ThreadLens Core **0.2.3+**, this integration **0.1.19+**.
+
+Full detail: [docs/ha-matter-device-names.md](docs/ha-matter-device-names.md). Core API and storage fields: [Core docs](https://github.com/theaussiepom/threadlens/blob/main/docs/home-assistant-integration.md).
+
+If one blind shows a serial while others show HA names, reload the integration or restart Home Assistant to trigger another push. See the troubleshooting section in the doc above.
 
 ## What this integration does not do
 
@@ -189,9 +211,7 @@ It shows:
 - **Network incident summary** — OK / Watch / Incident assessment
 - **Overall health** — overall and environment state with friendly reason chips
 - **Summary cards** — OTBRs, Thread networks, Matter nodes, mDNS services, TREL services, MQTT
-- **Matter node health** — grouped, sorted, clickable node rows with health badges. Node names prefer
-  your **Home Assistant Matter device/entity names** (e.g. blind names) when ThreadLens can match
-  them; Matter serials remain visible as secondary detail.
+- **Matter node health** — grouped, sorted, clickable node rows with health badges. Primary labels use HA names once pushed to Core; Matter serials remain as secondary detail when different.
 - **OTBR section** — per-OTBR reachability, effective state, network, reconciled mismatch details
 - **Matter servers** — server connectivity summary
 - **mDNS / TREL section** — service counts, foreign TREL (informational), observation-degraded state
@@ -267,6 +287,7 @@ Secondary helper entities only — useful for automations, not required for the 
 | Empty data | Wait for coordinator poll (60s) or press **Refresh** |
 | Reports not updating | Press **Generate report** or call core API directly |
 | MQTT entities missing | Enable MQTT in ThreadLens Core and HA MQTT integration (optional for dashboard) |
+| Matter nodes show serials only in Core | Confirm HACS integration is configured; reload integration or restart HA to push names — see [docs/ha-matter-device-names.md](docs/ha-matter-device-names.md) |
 
 ## Security
 
@@ -289,8 +310,12 @@ Release checklist: [RELEASE.md](RELEASE.md)
 
 ## Related projects
 
-- Core: https://github.com/theaussiepom/threadlens
+- Core: https://github.com/theaussiepom/threadlens — [HA device names in Core](https://github.com/theaussiepom/threadlens/blob/main/docs/home-assistant-integration.md)
 - HAOS add-on: https://github.com/theaussiepom/threadlens-ha-addon
+
+## Documentation
+
+- [Home Assistant Matter device names in Core](docs/ha-matter-device-names.md)
 
 ## License
 

@@ -2,6 +2,20 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
+## Unreleased
+
+### Added
+
+- [docs/ha-matter-device-names.md](docs/ha-matter-device-names.md) — how this integration supplies HA device names to Core
+
+### Fixed
+
+- Matter name push to Core now uses serial fallback matching (same as companion panel), not node id alone
+
+### Documentation
+
+- README and RELEASE checklist: HACS integration supplies HA Matter device names to Core
+
 ## [0.1.19] - 2026-06-15
 
 ### Added

@@ -27,7 +27,8 @@ Version target: `0.1.15` (screenshots + post-0.1.14 polish; pre-1.0)
 6. Confirm **Open full ThreadLens dashboard** opens Core in a new tab
 7. Confirm optional iframe remains off by default
 8. Confirm helper entities appear
-9. Press **Refresh** and **Generate report** buttons
+9. Confirm Matter node rows in the companion panel and Core dashboard show **Home Assistant device names** where matched (not only Matter serials)
+10. Press **Refresh** and **Generate report** buttons
 10. Stop ThreadLens Core and confirm repair issue + disconnected panel state
 
 ## Release notes draft (do not publish until approved)
