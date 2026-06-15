@@ -2,7 +2,7 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
-## Unreleased
+## [0.1.20] - 2026-06-15
 
 ### Added
 
