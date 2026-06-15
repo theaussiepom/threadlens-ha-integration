@@ -2,6 +2,17 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
+## [0.1.21] - 2026-06-15
+
+### Changed
+
+- Companion panel and dashboard copy aligned with Core 0.2.13+: `Last read check failed` instead of `Read probe issue`
+- Panel stat labels use `Failed read checks` for clearer parity with the Core Devices view
+
+### Notes
+
+- Recommended ThreadLens Core: **0.2.14+** (iframe CSP) with router dashboard **0.2.11+**
+
 ## [0.1.20] - 2026-06-15
 
 ### Added

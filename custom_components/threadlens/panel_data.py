@@ -80,15 +80,13 @@ def summarize_matter_read_probes(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         name = node.get("friendly_name") or f"Node {node.get('node_id', '?')}"
         last_ok = node.get("last_read_probe_ok")
         if _node_available(node) and last_ok is False:
-            detail = (
-                "Matter Server reports this node as available, but recent safe read probes failed."
-            )
+            detail = "Last read check failed."
         elif last_ok is False:
-            detail = "Recent safe read probes failed."
+            detail = "Last read check failed."
         else:
             failures = node.get("read_probe_failures_24h")
             failures_text = failures if failures is not None else "unknown"
-            detail = f"Read probe failures in the last 24h: {failures_text}."
+            detail = f"Last read check failed ({failures_text} in 24h)."
         issue_summaries.append(
             {
                 "name": name,

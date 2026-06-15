@@ -397,5 +397,5 @@ def test_read_probe_failure_classified_recently_unstable_with_reason():
     }
     assert classify_matter_node(node, []) == "recently_unstable"
     entry = _node_entry(node, [], None)
-    assert entry["classification_reason"] == "Read probe issue"
+    assert entry["classification_reason"] == "Last read check failed"
     assert entry["health_reason"] == "Safe read probe failed recently"

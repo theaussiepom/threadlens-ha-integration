@@ -336,7 +336,7 @@ class ThreadLensPanel extends HTMLElement {
       unavailable > 0
         ? `<span class="badge incident">${unavailable} unavailable node${unavailable === 1 ? "" : "s"}</span>`
         : readIssues > 0
-          ? `<span class="badge watch">${readIssues} read probe issue${readIssues === 1 ? "" : "s"}</span>`
+          ? `<span class="badge watch">${readIssues} failed read check${readIssues === 1 ? "" : "s"}</span>`
           : `<span class="badge ok">No unavailable nodes</span>`;
     return `
       <section class="card">
@@ -369,7 +369,7 @@ class ThreadLensPanel extends HTMLElement {
         <div class="grid">
           ${this._stat("Matter nodes", s.matter_node_count || 0)}
           ${this._stat("Unavailable", s.matter_nodes_unavailable || 0, unavailAccent)}
-          ${this._stat("Read probe issues", s.matter_read_probe_issues || 0, readAccent)}
+          ${this._stat("Failed read checks", s.matter_read_probe_issues || 0, readAccent)}
           ${this._stat("OTBRs", s.otbr_count || 0)}
           ${this._stat("Networks", s.network_count || 0)}
           ${this._stat("MQTT", s.mqtt_connected ? "Connected" : "Disconnected", mqttAccent)}
@@ -394,8 +394,8 @@ class ThreadLensPanel extends HTMLElement {
     const availableFailed = s.matter_read_probe_available_but_failed || 0;
     const summaryLine =
       issues.length > 0
-        ? `${s.matter_read_probe_issues || 0} node${(s.matter_read_probe_issues || 0) === 1 ? "" : "s"} with read probe issues in the last 24h.`
-        : "No read probe issues observed recently.";
+        ? `${s.matter_read_probe_issues || 0} node${(s.matter_read_probe_issues || 0) === 1 ? "" : "s"} with last read check failed in the last 24h.`
+        : "No failed read checks observed recently.";
     const rows =
       issues.length > 0
         ? issues
