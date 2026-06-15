@@ -8,7 +8,11 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .api import ThreadLensApi, ThreadLensApiError
-from .ha_matter_names import build_matter_node_ha_lookup, coerce_matter_node_id
+from .ha_matter_names import (
+    build_matter_node_ha_lookup,
+    coerce_matter_node_id,
+    resolve_ha_names_for_node,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,7 +25,6 @@ def build_matter_names_payload(
 ) -> dict[str, Any]:
     """Build a Core API payload mapping Matter node IDs to HA device names."""
     lookup = build_matter_node_ha_lookup(hass)
-    by_node_id = lookup.get("by_node_id") or {}
 
     server_ids = [
         str(server["id"])
@@ -37,20 +40,21 @@ def build_matter_names_payload(
         node_id = coerce_matter_node_id(node.get("node_id"))
         if node_id is None:
             continue
-        ha_entry = by_node_id.get(node_id)
-        if not isinstance(ha_entry, dict) or not ha_entry.get("ha_device_name"):
+        ha_fields = resolve_ha_names_for_node(node, lookup)
+        ha_device_name = ha_fields.get("ha_device_name")
+        if not ha_device_name:
             continue
         server_id = node.get("server_id") or default_server_id
         if not server_id:
             continue
-        cover_ids = ha_entry.get("ha_cover_entity_ids") or []
-        entity_ids = ha_entry.get("ha_entity_ids") or []
+        cover_ids = ha_fields.get("ha_cover_entity_ids") or []
+        entity_ids = ha_fields.get("ha_entity_ids") or []
         ha_entity_id = cover_ids[0] if cover_ids else (entity_ids[0] if entity_ids else None)
         devices.append(
             {
                 "server_id": str(server_id),
                 "node_id": node_id,
-                "ha_device_name": str(ha_entry["ha_device_name"]).strip(),
+                "ha_device_name": str(ha_device_name).strip(),
                 "ha_entity_id": ha_entity_id,
             }
         )
