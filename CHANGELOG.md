@@ -2,6 +2,13 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
+## [0.1.22] - 2026-06-15
+
+### Changed
+
+- README documents protocol-based auto-embed (replaces stale `embed_dashboard` option wording)
+- Cross-link to Core [docs/hacs-embedded-view.md](https://github.com/theaussiepom/threadlens/blob/main/docs/hacs-embedded-view.md)
+
 ## [0.1.21] - 2026-06-15
 
 ### Changed

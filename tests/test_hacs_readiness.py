@@ -16,7 +16,7 @@ def test_readme_explains_install_paths() -> None:
     assert "haos add-on" in readme or "haos" in readme
     assert "native companion" in readme
     assert "open full threadlens dashboard" in readme
-    assert "embed_dashboard" in readme or "optional iframe" in readme
+    assert "auto-embed" in readme or "optional iframe" in readme or "try embedded view" in readme
     assert "reverse proxy" in readme
     assert "not required" in readme or "optional" in readme
 

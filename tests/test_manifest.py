@@ -14,7 +14,7 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["domain"] == "threadlens"
     assert manifest["name"] == "ThreadLens"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.1.21"
+    assert manifest["version"] == "0.1.22"
     assert manifest["integration_type"] == "hub"
     assert manifest["iot_class"] == "local_polling"
     assert "aiohttp" in manifest["requirements"][0]
