@@ -11,14 +11,14 @@ running separately. This integration provides a **native companion/status sideba
 entities, diagnostics, repairs, and access to the canonical Core dashboard — not a replacement for
 Core or MQTT Discovery entities.
 
-**Status: pre-1.0 / HACS-ready** (version `0.1.15`). Behaviour may change before 1.0.
+**Status: pre-1.0 / HACS-ready** (version `0.1.22`). Behaviour may change before 1.0.
 
 ## Install paths
 
 | Path | What you get |
 |------|----------------|
 | **Docker / Core** | Run [ThreadLens Core](https://github.com/theaussiepom/threadlens) separately. Open the full dashboard directly at your Core URL (recommended for `0.2.0+`). |
-| **HACS (this repo)** | Connect Home Assistant to Core. Native companion panel, entities, diagnostics, repairs, and **Open full ThreadLens dashboard**. Optional iframe is off by default. |
+| **HACS (this repo)** | Connect Home Assistant to Core. Native companion panel, entities, diagnostics, repairs, and **Open full ThreadLens dashboard**. Auto-embeds Core UI when HA and Core use the same protocol (HTTP+HTTP or HTTPS+HTTPS). |
 | **HAOS add-on** | [ThreadLens HAOS add-on](https://github.com/theaussiepom/threadlens-ha-addon) exposes the Core dashboard through Home Assistant Ingress. Live HAOS Ingress validation may still be pending — check the add-on repository before production use. |
 
 Reverse proxy or HTTPS Core is **optional** for a useful HACS experience. Iframe embedding is **not**
@@ -29,7 +29,7 @@ required and **not** the default.
 - Connects to a running ThreadLens Core REST API (`0.2.0+` recommended)
 - Adds a **ThreadLens** sidebar **native companion panel** for Thread / Matter / OTBR / mDNS / TREL status
 - Provides a prominent **Open full ThreadLens dashboard** button (Core canonical UI in a new tab)
-- Optionally embeds the Core dashboard in the sidebar when `embed_dashboard` is enabled and browser security allows it
+- **Auto-embeds** the full Core router UI in the sidebar when Home Assistant and Core use the same protocol (matching HTTP or HTTPS). Mixed content (HTTPS HA + HTTP Core) shows the native companion summary instead
 - Shows a **network incident summary** (OK / Watch / Incident) so you can tell at a glance whether a
   Matter-over-Thread problem looks device-local or network-wide
 - Surfaces **at-a-glance Matter node health** (Unavailable / Recently unstable / Healthy / Unknown),
@@ -142,15 +142,16 @@ The integration creates a **ThreadLens Core API** device with helper entities fo
 
 ### Optional embedded dashboard
 
-The default sidebar experience is a **native companion/status panel**. It remains useful even when
-browser security blocks iframe embedding.
+The default sidebar experience is a **native companion/status panel**. When Home Assistant and
+ThreadLens Core use the same protocol (HTTP+HTTP or HTTPS+HTTPS), the panel **auto-embeds** the full
+Core router UI. Otherwise it shows the companion summary with **Open full ThreadLens dashboard**.
 
-- **Open full ThreadLens dashboard** opens the canonical Core UI in a new tab.
-- **Embed Core dashboard in sidebar** is an opt-in integration option (`embed_dashboard`, default
-  `false`). Enable it under **Settings → Devices & services → ThreadLens → Configure** only if your
-  browser setup allows iframe embedding.
+- **Open full ThreadLens dashboard** opens the canonical Core UI in a new tab — always reliable.
+- **Try Embedded View** on the companion summary retries iframe embedding when mixed content blocked the auto-embed.
 
-The canonical Core dashboard (opened separately, not duplicated in HACS):
+For HTTPS Home Assistant with embedded view, Core needs an **HTTPS** URL. See ThreadLens Core
+[docs/hacs-embedded-view.md](https://github.com/theaussiepom/threadlens/blob/main/docs/hacs-embedded-view.md).
+Reverse proxy is optional for normal HACS use.
 
 <p align="center">
   <img src="docs/screenshots/core-dashboard.png" alt="ThreadLens Core v0.2.0 full dashboard — incident summary, health cards, and Matter node list" width="720" />
@@ -158,7 +159,8 @@ The canonical Core dashboard (opened separately, not duplicated in HACS):
 
 If Home Assistant is served over **HTTPS** and ThreadLens Core is **HTTP**, browsers block mixed
 content. The panel keeps the native companion view and shows a calm note instead of a broken iframe.
-Reverse proxy or HTTPS Core is optional for advanced users, not required for basic HACS value.
+An HTTPS Core URL (for example via reverse proxy) enables auto-embed. Reverse proxy is optional for
+basic HACS value.
 
 For Home Assistant OS users, the **HAOS add-on Ingress** path is the intended embedded full-dashboard
 experience. Live HAOS Ingress validation may still be pending — see the add-on repository status.
@@ -170,8 +172,9 @@ After adding the integration, look for **ThreadLens** in the Home Assistant left
 `mdi:access-point-network`). The panel registers on setup — a restart is only required after the
 initial HACS install.
 
-The default view is the **native companion/status panel** with a prominent **Open full ThreadLens
-dashboard** button. Optional iframe embedding is off unless you enable it in integration options.
+The default view is the **native companion/status panel** when auto-embed is blocked, or the **full
+Core router UI** when HA and Core schemes match. **Open full ThreadLens dashboard** always works in a
+new tab.
 
 The panel fetches data from Home Assistant, which polls ThreadLens Core every 60 seconds; use the
 **Refresh** button for an immediate update.
@@ -242,7 +245,7 @@ It does not claim a root cause.
 | [Matter node detail](docs/screenshots/matter-node-detail.png) | Click-through node diagnostics |
 | [Core dashboard](docs/screenshots/core-dashboard.png) | Full ThreadLens Core UI (opened separately) |
 
-Still to capture: options flow (`embed_dashboard` toggle), mixed-content iframe fallback. See [docs/screenshots/README.md](docs/screenshots/README.md).
+Still to capture: mixed-content iframe fallback screenshot. See [docs/screenshots/README.md](docs/screenshots/README.md).
 
 ## Entities created by this integration
 
@@ -271,7 +274,7 @@ Secondary helper entities only — useful for automations, not required for the 
 
 - **Core** owns the canonical full dashboard (`/`, `GET /api/v1/dashboard`)
 - **HACS** provides native companion/status, entities, diagnostics, repairs, and access
-- **Optional iframe** is opt-in only (`embed_dashboard`, default `false`)
+- **Auto-embed** loads the full Core router UI when HA and Core use the same protocol; mixed content shows the companion summary instead
 - Backend: config flow, REST API client, data update coordinator, repair issues
 - Coordinator aggregates `/api/v1/version`, `/status`, `/health`, `/otbrs`, `/networks`,
   `/matter-servers`, `/matter-nodes`, `/mdns/services`, and `/trel/services`
