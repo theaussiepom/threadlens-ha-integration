@@ -90,7 +90,7 @@ def test_panel_summary_read_probe_diagnostics() -> None:
     assert summary["matter_read_probe_available_but_failed"] == 1
     assert len(summary["read_probe_issue_nodes"]) == 1
     detail = summary["read_probe_issue_nodes"][0]["detail"]
-    assert "safe read probes failed" in detail.lower()
+    assert "last read check failed" in detail.lower()
     assert "command" not in detail.lower()
 
 
