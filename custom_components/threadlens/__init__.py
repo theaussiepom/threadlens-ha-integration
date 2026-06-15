@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .const import CONF_PANEL_ENABLED, DEFAULT_PANEL_ENABLED, DOMAIN
 from .coordinator import build_coordinator
+from .matter_name_sync import async_setup_matter_name_sync
 from .panel import async_register_panel, async_unregister_panel, async_update_panel_core_url
 from .repairs import async_update_connection_repairs
 from .report_view import async_register_http_views
@@ -37,6 +38,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_register_panel(hass, entry.entry_id, coordinator.api.base_url)
     else:
         async_update_panel_core_url(hass, coordinator.api.base_url)
+
+    await async_setup_matter_name_sync(hass, entry)
 
     return True
 

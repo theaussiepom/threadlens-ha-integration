@@ -78,6 +78,9 @@ class ThreadLensPanel extends HTMLElement {
 
   set panel(panel) {
     this._configCoreUrl = (panel && panel.config && panel.config.core_url) || "";
+    if (this._maybeAutoEmbed() && this.shadowRoot) {
+      this._render();
+    }
   }
 
   set narrow(n) {
@@ -118,21 +121,29 @@ class ThreadLensPanel extends HTMLElement {
     this._loading = false;
     this._loaded = true;
 
+    this._maybeAutoEmbed();
+    this._render();
+  }
+
+  _coreUrl() {
+    return (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+  }
+
+  _maybeAutoEmbed() {
     const coreUrl = this._coreUrl();
     const { canEmbed } = canEmbedDashboard(
       window.location.protocol,
       coreUrl,
       window.location.href
     );
-    if (canEmbed && coreUrl) {
-      this._view = "embedded";
+    if (!canEmbed || !coreUrl) {
+      if (this._view === "embedded") {
+        this._view = "embed_blocked";
+      }
+      return false;
     }
-
-    this._render();
-  }
-
-  _coreUrl() {
-    return (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+    this._view = "embedded";
+    return true;
   }
 
   _openDashboardButton(coreUrl, extraClass = "") {

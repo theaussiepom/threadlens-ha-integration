@@ -77,11 +77,14 @@ class ThreadLensApi:
         path: str,
         *,
         expect_json: bool = True,
+        json_body: dict[str, Any] | None = None,
     ) -> Any:
         url = self._url(path)
         timeout = aiohttp.ClientTimeout(total=TIMEOUT_SECONDS)
         try:
-            async with self._session.request(method, url, timeout=timeout) as response:
+            async with self._session.request(
+                method, url, timeout=timeout, json=json_body
+            ) as response:
                 if response.status >= 400:
                     raise ThreadLensInvalidResponse(f"HTTP {response.status} from {path}")
                 if not expect_json:
@@ -165,6 +168,17 @@ class ThreadLensApi:
     async def get_trel_services(self) -> list[dict[str, Any]]:
         payload = await self._request("GET", "/api/v1/trel/services")
         return _coerce_list(payload, "services", "TREL")
+
+    async def post_matter_names(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Push Home Assistant Matter device names to ThreadLens Core."""
+        result = await self._request(
+            "POST",
+            "/api/v1/integrations/homeassistant/matter-names",
+            json_body=payload,
+        )
+        if not isinstance(result, dict):
+            raise ThreadLensInvalidResponse("Matter names payload must be an object")
+        return result
 
 
 async def validate_threadlens_api(session: aiohttp.ClientSession, base_url: str) -> dict[str, Any]:
