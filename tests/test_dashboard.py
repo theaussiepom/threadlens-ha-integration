@@ -379,3 +379,23 @@ def test_trel_real_instability_stays_warning():
 def test_humanize_unknown_reason():
     assert humanize_reason("some_new_reason_code") == "Some new reason code"
     assert humanize_reason("otbr_thread_stack_disabled") == "OTBR Thread stack disabled"
+
+
+def test_read_probe_failure_classified_recently_unstable_with_reason():
+    classify_matter_node = dashboard.classify_matter_node
+    _node_entry = dashboard._node_entry
+
+    node = {
+        "node_id": 27,
+        "server_id": "study",
+        "available": True,
+        "friendly_name": "Living Blind 3",
+        "read_probe_diagnostics_available": True,
+        "last_read_probe_ok": False,
+        "read_probe_failures_24h": 2,
+        "health": {"state": "warning", "reasons": ["matter_node_read_probe_failed"]},
+    }
+    assert classify_matter_node(node, []) == "recently_unstable"
+    entry = _node_entry(node, [], None)
+    assert entry["classification_reason"] == "Read probe issue"
+    assert entry["health_reason"] == "Safe read probe failed recently"

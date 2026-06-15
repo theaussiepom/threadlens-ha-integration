@@ -54,6 +54,44 @@ class ThreadLensCoordinatorData:
     events: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _enrich_matter_nodes_with_health(
+    health: dict[str, Any] | None,
+    nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Attach per-node health reasons from Core /health to matter node payloads."""
+    if not isinstance(health, dict):
+        return nodes
+    health_by_id = {
+        entry["id"]: entry
+        for entry in health.get("matter_nodes", []) or []
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    enriched: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        server_id = node.get("server_id")
+        node_id = node.get("node_id")
+        if server_id is None or node_id is None:
+            enriched.append(node)
+            continue
+        subject_id = f"matter_node:{server_id}:{node_id}"
+        health_entry = health_by_id.get(subject_id)
+        if health_entry is None:
+            enriched.append(node)
+            continue
+        enriched.append(
+            {
+                **node,
+                "health": {
+                    "state": health_entry.get("state"),
+                    "reasons": health_entry.get("reasons") or [],
+                },
+            }
+        )
+    return enriched
+
+
 class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
     """Poll ThreadLens Core health, status, and dashboard detail."""
 
@@ -101,7 +139,7 @@ class ThreadLensCoordinator(DataUpdateCoordinator[ThreadLensCoordinatorData]):
             otbrs=otbrs,
             networks=networks,
             matter_servers=matter_servers,
-            matter_nodes=matter_nodes,
+            matter_nodes=_enrich_matter_nodes_with_health(health, matter_nodes),
             mdns_services=mdns_services,
             trel_services=trel_services,
             events=events,

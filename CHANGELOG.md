@@ -2,6 +2,21 @@
 
 All notable changes to the ThreadLens Home Assistant integration are documented here.
 
+## [0.1.19] - 2026-06-15
+
+### Added
+- Push Home Assistant Matter device names to ThreadLens Core on startup and registry updates
+- Read-probe classification and `classification_reason` parity with Core dashboard
+- Per-node read probe block in the HACS dashboard payload
+
+### Changed
+- Coordinator enriches matter nodes with per-node health reasons from Core `/health`
+- Companion panel auto-embed now re-evaluates when `core_url` is set (`_maybeAutoEmbed`, ZigbeeLens parity)
+- Incident summary uses read-probe-specific detail when instability is probe-only
+
+### Requirements
+- ThreadLens Core **0.2.3+** for HA Matter name sync API
+
 ## [0.1.18] - 2026-06-15
 
 ### Fixed

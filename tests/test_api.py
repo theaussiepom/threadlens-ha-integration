@@ -174,3 +174,42 @@ async def test_api_invalid_json_raises() -> None:
                 await api_client_obj._request("GET", "/api/v1/bad")
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_api_post_matter_names() -> None:
+    import aiohttp
+
+    app = web.Application()
+    received: dict[str, object] = {}
+
+    async def matter_names(request: web.Request) -> web.Response:
+        received["payload"] = await request.json()
+        return web.json_response(
+            {"matched_devices": 1, "last_push_at": "2026-06-14T12:00:00+00:00"}
+        )
+
+    app.router.add_post("/api/v1/integrations/homeassistant/matter-names", matter_names)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+    base_url = f"http://{server.host}:{server.port}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            api_client_obj = ThreadLensApi(session, base_url)
+            result = await api_client_obj.post_matter_names(
+                {
+                    "source": "homeassistant",
+                    "devices": [
+                        {
+                            "server_id": "study",
+                            "node_id": 27,
+                            "ha_device_name": "Study Blind West",
+                        }
+                    ],
+                }
+            )
+        assert result["matched_devices"] == 1
+        assert received["payload"]["devices"][0]["ha_device_name"] == "Study Blind West"
+    finally:
+        await client.close()
